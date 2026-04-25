@@ -1,0 +1,26 @@
+{
+  "name": "ocudu-log-analyzer",
+  "owner": {
+    "name": "Francisco Paisana",
+    "email": "francisco.paisana@srs.io"
+  },
+  "metadata": {
+    "description": "Skills for analysing OCUDU gNB/DU/CU log files and console output."
+  },
+  "plugins": [
+    {
+      "name": "ocudu-log-analyzer",
+      "source": {
+        "source": "github",
+        "repo": "frankist/ocudu-log-analyzer"
+      },
+      "description": "Analyse OCUDU gNB/DU/CU log files and console output. Covers many OCUDU loggers, namely metrics, config, scheduler, MAC, PHY, RRC.",
+      "author": {
+        "name": "Francisco Paisana",
+        "email": "francisco.paisana@srs.io"
+      },
+      "license": "BSD-3-Clause",
+      "keywords": ["5g", "nr", "gnb", "du", "cu", "srsran", "ocudu", "log-analysis"]
+    }
+  ]
+}
