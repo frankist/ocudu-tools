@@ -44,12 +44,13 @@ Determine this from the CONFIG block before interpreting any latency figures:
 
 | Signal | Mode |
 |---|---|
-| `ru_sdr.device_driver: zmq` or `zmq:tx`/`zmq:rx` component tags | Simulated (ZMQ) — not real-time |
-| `ru_sdr.device_driver: uhd/bladerf/lime/soapy` | Real SDR hardware — real-time |
-| `ru_ofh` section or `OFH` tags | O-RAN FH hardware — real-time |
-| No `ru_sdr` / `ru_ofh`, or console/unit test output | No radio — latency irrelevant |
+| `ru_sdr.device_driver: uhd/bladerf/lime/soapy` | Real SDR — real-time |
+| `ru_ofh` section or `OFH` component tags | O-RAN FH RU — real-time |
+| `ru_dummy` section or `device_driver: dummy` | Dummy RU — real-time timing, no actual radio |
+| `ru_sdr.device_driver: zmq` or `zmq:tx`/`zmq:rx` component tags | ZMQ simulation — not real-time |
+| Console/unit test output (no `ru_*` config present) | Unit test — not real-time |
 
-In simulated and no-radio modes, skip commentary on wall-clock latency spikes, `slot_ind_msg_time_diff`, and PHY processing latency.
+In simulated and no-radio modes, latency analysis is not relevant, so do not mention them.
 
 ## Analysis order
 
@@ -62,6 +63,10 @@ Follow the detailed steps in `references/analysis-guide.md`. The top-level order
 5. Deep-dive analysis — load only the relevant layer file(s) from `references/layers/` based on which components show anomalies
 6. Diagnosis and recommendations
 7. Persist new insights to the relevant layer file
+
+## Unknown log information
+
+If a log line's meaning is unclear and not covered by the layer reference files, look it up in the OCUDU source code. If this skill is currently installed inside a local OCUDU project, search the local project folder directly. Once understood, update the relevant `references/layers/*.md` file. If the source is inconclusive, ask the user.
 
 ## Memory
 
