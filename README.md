@@ -41,6 +41,25 @@ The skill triggers automatically. Examples of what activates it:
 - "Analyze `/tmp/gnb.log`"
 - Pasting console output from a failed unit test that includes OCUDU log lines
 
+## Contributing
+
+### Branch model
+
+| Branch | Purpose |
+|---|---|
+| `main` | Stable, shared skills — the version installed by users |
+| `<name>` | Personal branch — local improvements, lessons learned, experimental notes |
+
+### Proposing a skill update
+
+1. Branch off `main`: `git checkout -b <your-name>`
+2. Make your changes — add knowledge to layer files, refine instructions, fix gaps
+3. Open a PR against `main`
+
+### Review process
+
+PRs are reviewed with the `synthesize-skill-update` skill, which extracts the generalisable knowledge from your branch, discards personal or overly specific notes, and merges the result cleanly into `main`. You will receive a summary of what was kept and what was left out.
+
 ## License
 
 BSD 3-Clause — see [LICENSE](LICENSE).
