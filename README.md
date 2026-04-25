@@ -54,7 +54,8 @@ The skill triggers automatically. Examples of what activates it:
 
 1. Branch off `main`: `git checkout -b <your-name>`
 2. Make your changes — add knowledge to layer files, refine instructions, fix gaps
-3. Open a PR against `main`
+3. Run `/ocudu-tools:synthesize-skill-update` to clean up your branch before submitting
+4. Open a PR against `main`
 
 ### Review process
 

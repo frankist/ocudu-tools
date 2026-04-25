@@ -24,6 +24,10 @@ git checkout <user-branch>
 /ocudu-tools:synthesize-skill-update
 ```
 
+## Pre-flight check
+
+Before doing anything else, run `git status`. If there are uncommitted changes, inform the user and ask whether to proceed anyway or stop so they can commit first. Do not continue until they confirm.
+
 ## Output
 
 Produce three things:
