@@ -1,6 +1,6 @@
 {
-  "name": "ocudu-log-analyzer",
-  "description": "Skill for analysing OCUDU gNB/DU/CU log files and console output. Covers metrics, scheduler, MAC, PHY, RRC, F1AP, NGAP and E1AP layers.",
+  "name": "ocudu-tools",
+  "description": "Claude Code skills for OCUDU instrumentation and diagnostics. Includes log analysis covering metrics, scheduler, MAC, PHY, RRC, F1AP, NGAP and E1AP layers.",
   "author": {
     "name": "Francisco Paisana",
     "email": "francisco.paisana@srs.io"

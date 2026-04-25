@@ -1,20 +1,20 @@
 {
-  "name": "ocudu-log-analyzer",
+  "name": "ocudu-tools",
   "owner": {
     "name": "Francisco Paisana",
     "email": "francisco.paisana@srs.io"
   },
   "metadata": {
-    "description": "Skills for analysing OCUDU gNB/DU/CU log files and console output."
+    "description": "Claude Code skills for OCUDU instrumentation and diagnostics."
   },
   "plugins": [
     {
-      "name": "ocudu-log-analyzer",
+      "name": "ocudu-tools",
       "source": {
         "source": "github",
-        "repo": "frankist/ocudu-log-analyzer"
+        "repo": "frankist/ocudu-tools"
       },
-      "description": "Analyse OCUDU gNB/DU/CU log files and console output. Covers many OCUDU loggers, namely metrics, config, scheduler, MAC, PHY, RRC.",
+      "description": "Claude Code skills for OCUDU instrumentation and diagnostics. Includes log analysis covering metrics, scheduler, MAC, PHY, RRC, F1AP, NGAP and E1AP layers.",
       "author": {
         "name": "Francisco Paisana",
         "email": "francisco.paisana@srs.io"

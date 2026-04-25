@@ -1,10 +1,14 @@
-# ocudu-log-analyzer
+# ocudu-tools
 
-A Claude Code skill for analysing log files and console output from [OCUDU](https://github.com/srsran/ocudu) — an open-source 5G CU/DU implementation.
+Claude Code skills for working with [OCUDU](https://github.com/srsran/ocudu) — an open-source 5G CU/DU implementation. Covers instrumentation, observability, and diagnostics across the OCUDU stack.
 
-## What it does
+## Skills
 
-The skill automatically activates when you share an OCUDU log file or unit test console output. It analyses the log in layers, starting with the cheap aggregate metrics and drilling into specific protocol layers only when anomalies are found.
+### analyze-ocudu-log
+
+Analyses log files and console output from any OCUDU application. Activates automatically when you share a log file or unit test output containing OCUDU log lines.
+
+It analyses the log in layers, starting with the cheap aggregate metrics and drilling into specific protocol layers only when anomalies are found.
 
 **Covered layers:**
 - `METRICS` — scheduler, MAC, PHY and executor KPI windows
@@ -20,8 +24,11 @@ The skill automatically activates when you share an OCUDU log file or unit test 
 
 ## Installation
 
+Add the marketplace, then install the plugin:
+
 ```
-/plugin install ocudu-log-analyzer
+/plugin marketplace add frankist/ocudu-tools
+/plugin install ocudu-tools
 ```
 
 Or browse via `/plugin > Discover`.
