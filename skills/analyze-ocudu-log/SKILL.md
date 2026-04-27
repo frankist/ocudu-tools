@@ -1,7 +1,7 @@
 ---
 name: analyze-ocudu-log
 description: This skill should be used when the user explicitly asks to "analyze a log", "look at the logs", "check the gnb log", "debug from logs", "what does the log say", or shares a path to a .log file from an OCUDU application (gnb, du, cu, cu_cp, cu_up). It may also be auto-triggered for failed unit tests or runtime failures that include OCUDU-formatted log output — but only after cheaper methods have been exhausted: first try to diagnose from the test assertion message, stack trace, error summary, or surrounding non-log context. Load this skill only when those simpler signals are insufficient and the OCUDU log lines themselves are needed to understand the failure.
-version: 1.0.0
+version: 1.1.0
 ---
 
 # Analyze OCUDU Log
@@ -50,6 +50,41 @@ Determine this from the CONFIG block before interpreting any latency figures:
 | Console/unit test output (no `ru_*` config present) | Unit test — not real-time |
 
 In simulated and no-radio modes, latency analysis is not relevant, so do not mention them.
+
+## Scenario detection
+
+Identify the test scenario **before** diving into metrics — it determines what is expected behaviour vs. a real anomaly.
+
+**Priority order:**
+
+1. **User stated it** — take it at face value, no detection needed.
+2. **Files alongside the log** — `ls` the log's directory and read anything that looks relevant: test configs (`*.yml`), result files (`*.json`, `*.xml`), notes (`*.md`, `*.txt`), or a test name embedded in the log file path. Read them before touching the log itself.
+3. **Infer from the CONFIG block** — use these signals:
+
+| Config signal | Likely scenario |
+|---|---|
+| `mobility.trigger_cho_on_ue_setup: true` | CHO stress / ping-pong test |
+| `mobility.trigger_handover_from_measurements: true` | Measurement-triggered HO |
+| `xnap_enable: true` or XNAP component tags present | Inter-CU handover |
+| `cu_cp.max_nof_dus > 1` and multiple DU F1 connections | Inter-DU handover |
+| `no_core: true` | Standalone / no-core attach test |
+| Single cell, single UE, short run | Basic attach + data test |
+| `max_nof_ues` high or many concurrent RACHs | Load / scalability test |
+| `ntn_level` present or NTN config keys | NTN scenario |
+
+4. **Infer from what procedures appear in the log** — grep for key events after reading the config:
+   - `CHO winner selected` → CHO execution happening
+   - `XnAP` PDUs → inter-CU in progress
+   - Many `F1 UE context removed` / `F1 UE context created` cycles → handover loop
+   - Single `InitialUEMessage` + `InitialContextSetupResponse` → basic attach
+
+5. **Ask the user** — if none of the above gives a confident answer, ask one focused question before continuing:
+   > "I can see [observed behaviour]. Is this a [candidate A] or [candidate B] test scenario? Knowing this helps me distinguish expected behaviour from real failures."
+
+State the detected scenario explicitly at the top of the analysis output, e.g.:
+> **Scenario**: intra-CU CHO ping-pong stress test (2 cells, `trigger_cho_on_ue_setup: true`)
+
+This framing prevents misidentifying intentional protocol behaviour as a bug.
 
 ## Mode
 

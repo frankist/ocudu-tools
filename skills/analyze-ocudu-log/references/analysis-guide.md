@@ -25,7 +25,18 @@ From `[CONFIG]` lines:
 - Run mode (see SKILL.md table)
 - Key non-default settings: `prach`, `tdd_ul_dl_cfg`, `scheduler`, log levels
 
-### Step 3 — Metrics summary
+### Step 3 — Scenario detection
+
+Follow the full procedure in SKILL.md § "Scenario detection". In brief:
+
+1. `ls` the log's directory — read any companion files (configs, results, notes) before inspecting the log.
+2. Extract scenario signals from the CONFIG block (mobility flags, cell count, `no_core`, NTN keys, etc.).
+3. Grep for key procedure events (`CHO winner selected`, `XnAP`, rapid F1 context churn, etc.) to confirm.
+4. If still ambiguous, ask the user one focused question.
+
+**Output**: one sentence naming the scenario at the top of the report. This governs what counts as anomalous in the remaining steps.
+
+### Step 4 — Metrics summary
 
 From `[METRICS]` lines (load `layers/metrics.md` for field names):
 - Number of UEs that connected (peak `ue_count` from MAC cell metrics)
@@ -34,7 +45,7 @@ From `[METRICS]` lines (load `layers/metrics.md` for field names):
 - PRACH detections (`preambles_detected` from Scheduler metrics)
 - Any windows with zero throughput while UEs were attached
 
-### Step 4 — Errors and warnings summary
+### Step 5 — Errors and warnings summary
 
 From `[W]` and `[E]` lines:
 - Suppress startup noise: `CPU* scaling governor` and `DRM KMS polling` warnings
@@ -50,7 +61,7 @@ Identify what failed and why. Start with a quick report pass to orient, then foc
 
 ### Step 1 — Quick report pass
 
-Run the report mode steps above to get an overview. Use the findings to identify which failures to investigate: errors, metric anomalies (zero throughput, high KO rate), RLFs, failed PRACH.
+Run the report mode steps above to get an overview. This includes scenario detection (Report mode Step 3) — the identified scenario governs what counts as a real failure in the steps below.
 
 ### Step 2 — Locate failure events
 
