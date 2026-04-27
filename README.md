@@ -44,6 +44,8 @@ Cleans up a personal branch before it is merged into `main`. Run it when reviewi
 
 ## Installation
 
+### Option A — Marketplace (read-only)
+
 Add the marketplace, then install the plugin:
 
 ```
@@ -52,6 +54,39 @@ Add the marketplace, then install the plugin:
 ```
 
 Or browse via `/plugin > Discover`.
+
+### Option B — Clone and symlink (recommended if you want to edit skills)
+
+Clone the repo and symlink it into Claude Code's skills directory so your changes are picked up immediately and you can source-control them:
+
+```bash
+git clone https://github.com/frankist/ocudu-tools ~/ocudu-tools
+ln -s ~/ocudu-tools ~/.claude/plugins/ocudu-tools
+```
+
+With this setup you can branch, edit layer reference files or skill instructions, and commit your findings — then open a PR to share them back.
+
+## Configuration
+
+### GitLab token
+
+`fix-gitlab-issue` and `fix-gitlab-mr` require a GitLab personal access token with `api` scope. Set it in one of two ways:
+
+**Shell environment** — add to your `.bashrc` / `.zshrc`:
+
+```bash
+export GITLAB_AI_TOKEN=glpat-xxxxxxxxxxxxxxxxxxxx
+```
+
+**Claude Code settings** — add to `~/.claude/settings.json` so it is always available inside Claude Code sessions:
+
+```json
+{
+  "env": {
+    "GITLAB_AI_TOKEN": "glpat-xxxxxxxxxxxxxxxxxxxx"
+  }
+}
+```
 
 ## Usage
 
@@ -69,9 +104,6 @@ Skills trigger automatically from natural language. Examples:
 **fix-gitlab-mr**
 - "The pipeline is failing on this MR: https://gitlab.com/ocudu/ocudu/-/merge_requests/618"
 - "Fix the CI failure on !618"
-
-**synthesize-skill-update**
-- Run `/ocudu-tools:synthesize-skill-update` on your branch before opening a PR
 
 ## Contributing
 
