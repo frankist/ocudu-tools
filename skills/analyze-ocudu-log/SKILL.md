@@ -36,7 +36,6 @@ Logs can exceed 1 GB — never read the file whole.
 
 - Use `wc -l` first to gauge size; use `grep -c` to count matches before fetching lines
 - Always grep METRICS lines first — they are sparse and drive whether deeper sections are needed
-- Combine RACH/HARQ patterns into a single `grep -E` pass over the file
 
 ## Run-mode detection
 
@@ -52,17 +51,17 @@ Determine this from the CONFIG block before interpreting any latency figures:
 
 In simulated and no-radio modes, latency analysis is not relevant, so do not mention them.
 
-## Analysis order
+## Mode
 
-Follow the detailed steps in `references/analysis-guide.md`. The top-level order is:
+Determine the mode from the user's request before starting:
 
-1. Overview (build info, time span, components, log levels, cell active range)
-2. Active configuration and run-mode
-3. Errors and warnings
-4. **Metrics analysis** — always first; use findings to decide what deeper investigation is needed
-5. Deep-dive analysis — load only the relevant layer file(s) from `references/layers/` based on which components show anomalies
-6. Diagnosis and recommendations
-7. Persist new insights to the relevant layer file
+| Request type | Mode |
+|---|---|
+| "report", "summary", "what happened", "give me an overview" | **Report** — summarise what occurred |
+| "what went wrong", "why did X fail", "analyze", "debug" | **Analysis** — root-cause investigation |
+| Ambiguous | Ask the user |
+
+Follow the steps for the selected mode in `references/analysis-guide.md`.
 
 ## Unknown log information
 
@@ -71,3 +70,10 @@ If a log line's meaning is unclear and not covered by the layer reference files,
 ## Memory
 
 After each analysis, append new generalisable findings to the **Accumulated knowledge** section of the relevant `references/layers/*.md` file. Save root causes, newly seen log patterns, metric keys, or protocol facts — not per-run values (RNTIs, slot numbers, bitrates).
+
+Parsing scripts are also part of accumulated knowledge. When a layer requires complex multi-field parsing that would otherwise need multiple grep passes or produce too many raw lines for efficient analysis, write a Python script and save it to `references/scripts/<layer>.py`. Scripts must:
+- Accept a log file path as `sys.argv[1]`
+- Print a compact human-readable summary to stdout
+- Cover ≥3 structured fields or produce statistical summaries (rates, counts, extremes)
+
+When a script is created or updated, add a `## Parsing script` section to the corresponding layer `.md` file describing what it outputs and when to use it.
