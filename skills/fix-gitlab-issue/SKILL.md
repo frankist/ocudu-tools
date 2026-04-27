@@ -189,6 +189,7 @@ Write the report file at `$WORKTREE_PATH/ISSUE_FIX_REPORT.md`:
 
 <paragraph: why this change, what it fixes>
 
+Assisted-by: Claude Code
 Fixes #<IID>
 ```
 
@@ -196,6 +197,9 @@ Fixes #<IID>
 
 **MR description:**
 ```markdown
+## Root Cause
+<What was wrong and why — compiler/runtime mechanism, not just "the fix". Include any findings that go beyond what the original issue described, e.g. which commit introduced a regression, which specific field carries uninitialized padding, why a previous partial fix was insufficient.>
+
 ## Summary
 <bullet points>
 
@@ -204,6 +208,17 @@ Fixes #<IID>
 
 Fixes #<IID>
 ```
+
+**Issue comment (if root cause differs from the original issue description):**  
+If your root cause analysis adds material information beyond what the issue already states — new specific details, a regression commit, a misidentified cause — post a comment on the issue via:
+```bash
+curl -sf -X POST \
+  -H "PRIVATE-TOKEN: $GITLAB_AI_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "$(jq -n --arg b "<comment>" '{body: $b}')" \
+  "$GITLAB_BASE/api/v4/projects/$ENC/issues/$ISSUE_IID/notes"
+```
+Keep the comment factual and brief. Reference the MR with `!<MR_IID>`. Skip the comment if the issue already correctly and fully describes the root cause.
 ```
 
 Show the full report inline to the user and **stop**. Wait for the user to explicitly approve before doing anything with git.
@@ -223,6 +238,7 @@ Only proceed when the user says "commit", "push", "create MR", "go ahead", or eq
 
    <paragraph body>
 
+   Assisted-by: Claude Code
    Fixes #<IID>
    EOF
    )"
