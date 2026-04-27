@@ -92,7 +92,13 @@ git worktree add "$WORKTREE_PATH" "$BASE_BRANCH"
 
 All subsequent file reads and edits must target paths under `$WORKTREE_PATH`, not the main repo checkout.
 
-Note: the build directory (`build/`) is separate from the source tree and shared — do not create a new build directory. Builds run from the existing build dir, just pointing at the worktree source.
+**Create a dedicated build directory** in `/tmp` for this worktree to avoid collisions with the user's regular workflow:
+```bash
+BUILD_PATH="/tmp/fix-$(basename "$PROJECT_PATH")-$ISSUE_IID-build"
+cmake -S "$WORKTREE_PATH" -B "$BUILD_PATH" -DCMAKE_BUILD_TYPE=RelWithDebInfo -G Ninja \
+  -DLINKER=mold -DBUILD_TESTING=On
+```
+**Never use ccache** (omit `-DCMAKE_CXX_COMPILER_LAUNCHER=ccache`) — the worktree build is isolated and ccache pollution would slow the user's main builds.
 
 ## Phase 4 — Understand & Reproduce
 
@@ -118,11 +124,15 @@ Document the result as one of:
 
 Make the code changes in `$WORKTREE_PATH`. Follow all coding conventions from `CLAUDE.md` and the project's `.clang-format`.
 
-**Build** using the project's build commands (e.g. `ninja -C /home/xico/srs/ocudu/build <target>`). Fix any compiler errors before proceeding.
+**Build only the specific target(s) affected by the fix** — never build all targets. Identify the relevant target from the test file path or CMakeLists.txt and build it directly:
+```bash
+cmake --build "$BUILD_PATH" --target <specific_target>
+```
+Fix any compiler errors before proceeding.
 
-**Run tests.** After a clean build, run:
+**Run tests.** After a clean build, run only the relevant tests — never the full suite:
 - The reproducing test (if created)
-- Any related test suite in the affected module (`ctest -R <pattern>`)
+- The specific test target(s) built above (`ctest --test-dir "$BUILD_PATH" -R <pattern> --output-on-failure`)
 
 If tests fail after the fix, document it honestly in the report — do **not** paper over failures or silently skip them.
 
@@ -229,9 +239,10 @@ Only proceed when the user says "commit", "push", "create MR", "go ahead", or eq
      "<MR title>" "<MR description>"
    ```
    Print the returned URL.
-5. Clean up worktree:
+5. Clean up worktree and build dir:
    ```bash
    git worktree remove "$WORKTREE_PATH"
+   rm -rf "$BUILD_PATH"
    ```
 
 ## Error handling
