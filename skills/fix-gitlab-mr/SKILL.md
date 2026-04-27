@@ -65,7 +65,7 @@ Identify the **latest pipeline** (first element of `pipelines[]`).
 | Latest pipeline status | Action |
 |---|---|
 | `success` | Tell the user: "The latest pipeline passed. Nothing to fix." Offer two options: (1) close here, (2) pick an earlier pipeline to investigate. If the user picks (2), let them choose from the list and continue from Phase 3. |
-| `running` or `pending` | Tell the user: "The latest pipeline is still running (status: `<status>`)." Offer same two options as above. |
+| `running` or `pending` | Fetch the jobs for this pipeline (Phase 3 script) and check if any have `status == "failed"` already. If yes: tell the user which jobs have already failed and offer two options: (1) stop here, (2) pick one of the already-failed jobs to investigate now. If no jobs have failed yet: tell the user the pipeline is still running with no failures yet and offer two options: (1) stop here, (2) pick an earlier pipeline to investigate. |
 | `failed` or `canceled` | Continue to Phase 3. |
 | No pipelines at all | Tell the user: "No pipelines found for this MR." Stop. |
 
@@ -186,11 +186,12 @@ cmake --build "$BUILD_PATH" --target <specific_target> -- -j$(nproc)
 ```
 Fix compiler errors iteratively. Do not proceed to testing until the build is clean.
 
-**Run targeted tests only:**
+**Run all test targets that failed in the CI job.** From the log analysis in Phase 4, collect every distinct test binary that appeared in the FAILED list (e.g. `common_scheduler_test`, `scheduler_test`, `du_high_tester`). Build and run each one:
 ```bash
-ctest --test-dir "$BUILD_PATH" -R "<pattern>" --output-on-failure -j$(nproc)
+cmake --build "$BUILD_PATH" --target <test_target_1> <test_target_2> ... -- -j$(nproc)
+ctest --test-dir "$BUILD_PATH" -R "^(test_target_1|test_target_2|...)$" --output-on-failure -j$(nproc)
 ```
-Use the narrowest pattern that covers the failing test(s). Never run the full suite.
+Do not narrow the pattern further — if the CI ran the whole binary and it failed, run the whole binary. Never run the full suite beyond what failed.
 
 If tests still fail after the fix, document it honestly in the report — do not hide failures or skip them silently.
 
