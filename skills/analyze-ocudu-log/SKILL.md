@@ -1,7 +1,7 @@
 ---
 name: analyze-ocudu-log
 description: This skill should be used when the user explicitly asks to "analyze a log", "look at the logs", "check the gnb log", "debug from logs", "what does the log say", or shares a path to a .log file from an OCUDU application (gnb, du, cu, cu_cp, cu_up). It may also be auto-triggered for failed unit tests or runtime failures that include OCUDU-formatted log output — but only after cheaper methods have been exhausted: first try to diagnose from the test assertion message, stack trace, error summary, or surrounding non-log context. Load this skill only when those simpler signals are insufficient and the OCUDU log lines themselves are needed to understand the failure.
-version: 1.1.0
+version: 1.2.0
 ---
 
 # Analyze OCUDU Log

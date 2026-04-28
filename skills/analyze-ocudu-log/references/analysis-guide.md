@@ -102,6 +102,7 @@ If the script exists, run it and use its output as the layer summary — skip th
 | `F1AP` | `layers/f1ap.md` | CU–DU interface failures, UE context errors |
 | `NGAP` | `layers/ngap.md` | Core network rejections, PDU session failures |
 | `E1AP` | `layers/e1ap.md` | User-plane bearer failures, zero throughput with UE connected |
+| `OFH` | `layers/ofh.md` | Any non-zero OFH sector/timing metrics anomaly, RACH failures in O-RAN FH deployments, missed UL symbols or PRACH occasions |
 
 Use a single combined `grep -E` pass per layer. For very large logs, use `grep -n` to get line numbers first, then `sed` to read only the relevant ranges.
 
