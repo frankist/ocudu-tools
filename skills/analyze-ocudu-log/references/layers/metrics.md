@@ -2,7 +2,7 @@
 
 ## What this layer reveals
 
-The `METRICS` component emits periodic aggregated KPI reports covering all lower layers. It is the cheapest and most information-dense starting point: a handful of lines summarise the health of the entire cell across a time window without requiring a full log scan. Always read METRICS first to determine whether deeper layer investigation is needed.
+The `METRICS` component emits periodic aggregated KPI reports covering all lower layers. METRICS lines are sparse but information-dense: a handful summarise cell health across a time window and quickly identify which layers need deeper investigation.
 
 ## Component tags
 
@@ -168,10 +168,18 @@ Flag executors with `task_max` > 10 ms or `cpu_load` > 80% — these indicate th
 ### UE metrics (when present)
 
 ```
-[METRICS ] UE metrics rnti=0xNNNN ...
+[METRICS ] UE metrics rnti=0xNNNN pci=N dl_brate=X.Xbps ul_brate=X.Xbps dl_nok=N dl_ok=N ul_nok=N ul_ok=N
 ```
 
 Per-UE throughput and HARQ stats. Useful for identifying which specific UE is degraded when aggregate metrics look healthy.
+
+| Field | Meaning |
+|---|---|
+| `dl_brate` / `ul_brate` | Per-UE DL/UL throughput (bps) |
+| `dl_nok` / `dl_ok` | DL HARQ KO / OK counts for this UE |
+| `ul_nok` / `ul_ok` | UL HARQ KO / OK counts for this UE |
+
+HARQ KO rate per UE: `dl_nok / (dl_ok + dl_nok)`. Sum across all UE lines for the aggregate run KO rate.
 
 ## What to look for
 
