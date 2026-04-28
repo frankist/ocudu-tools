@@ -21,7 +21,13 @@ JUnit XML files (`out.xml`, `report.xml`) may also be present. If found, grep th
 grep -E '<failure|<error|<skipped' out.xml
 ```
 
-These files often directly state whether the run passed or failed and the assertion or exception that caused the failure. If the failure reason is clear from the report file alone, note it in the summary and skip the deeper log grep in Step 6.
+These files often directly state whether the run passed or failed and the assertion or exception that caused the failure. If the failure reason is clear from the report file alone, note it in the summary and skip Step 7 (detailed errors and warnings scan).
+
+If a **CI job raw log** is available (`/tmp/job_clean.log` from the SKILL.md CI flow), also grep for **Retina** per-component warning summaries — these are a high-value fast signal emitted at test end:
+```bash
+grep -E 'has [0-9]+ errors|has [0-9]+ warnings' /tmp/job_clean.log | head -20
+```
+Example: `[WARNING] GNB_1 has 9 errors and 23705 warnings. First error is: RealtimeSanitizer: unsafe-library-call`
 
 ---
 
@@ -82,15 +88,6 @@ grep -E '==.*==ERROR:.*Sanitizer' <console_file>
 
 **Sanitizer errors** (`RealtimeSanitizer`, `AddressSanitizer`, `UndefinedBehaviorSanitizer`) are a distinct failure class: the process detected a runtime safety violation and printed a stack trace. They always appear as `==PID==ERROR: <SanitizerName>: <description>` lines followed by a stack trace. Flag any occurrence immediately — they are always actionable.
 
-**Retina test framework** (used in CI): Retina orchestrates e2e tests and emits per-component warning summaries into the CI log at test end:
-```
-[WARNING] GNB_1 has 9 errors and 23705 warnings. First error is: RealtimeSanitizer: unsafe-library-call
-```
-When analysing a CI job raw log (`/tmp/job_clean.log`), grep for these summaries as a fast signal before diving into individual test artifacts:
-```bash
-grep -E 'has [0-9]+ errors|has [0-9]+ warnings' /tmp/job_clean.log | head -20
-```
-
 ---
 
 ## Step 4 — Startup CONFIG block
@@ -124,20 +121,24 @@ Use signals from config files (Step 2) and the CONFIG block (Step 4) to determin
 | `ru_sdr.device_driver: zmq` or `zmq:tx`/`zmq:rx` component tags | ZMQ simulation — not real-time |
 | No `ru_*` config present (unit test / console output only) | Unit test — not real-time |
 
-In simulated and no-radio modes, latency analysis is not relevant — do not mention it.
+In ZMQ simulation and unit test modes, latency analysis is not relevant — do not mention it. `ru_dummy` uses real-time timing, so latency metrics remain relevant there.
 
 ---
 
 ## Step 6 — METRICS lines
 
-
 METRICS lines are sparse and give throughput and HARQ KO counts without reading the full log.
 
+If `references/scripts/metrics.py` exists, run it — it scans all windows and computes peaks:
 ```bash
-grep '\[METRICS' <logfile> | tail -30
+python3 references/scripts/metrics.py <logfile>
 ```
 
-If `references/scripts/metrics.py` exists, run it instead — it produces a compact summary covering all METRICS fields.
+Otherwise, extract all scheduler cell metric lines (scanning all windows is required to find the peak — `tail` alone can miss an early peak):
+```bash
+grep '\[METRICS' <logfile> | grep 'Scheduler cell pci'
+```
+For recent state only, append `| tail -10`.
 
 **Cell-level fields (from Scheduler cell metrics lines):**
 

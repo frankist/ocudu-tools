@@ -10,6 +10,8 @@ The NG Application Protocol is the gNB–AMF (5G core) interface. NGAP logs reve
 
 ## Key log patterns
 
+> **Note:** The exact log line formats below are illustrative. Verify against real logs and update this file when the actual format is observed.
+
 ### AMF connection
 
 ```
@@ -48,10 +50,10 @@ The NG Application Protocol is the gNB–AMF (5G core) interface. NGAP logs reve
 
 ```bash
 # AMF setup and connectivity
-grep -E 'NGAP.*Setup|AMF.*connect|AMF.*drop' <logfile>
+grep -iE 'NGAP.*Setup|AMF.*connect|AMF.*drop' <logfile>
 
 # UE registration and PDU session events
-grep -E 'InitialUE|ContextSetup|PDU.*[Ss]ession|UEContext[Rr]elease|[Pp]aging' <logfile>
+grep -iE 'InitialUE|ContextSetup|PDU.*session|UEContextRelease|paging' <logfile>
 ```
 
 ## What to look for

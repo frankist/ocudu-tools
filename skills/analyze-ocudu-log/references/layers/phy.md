@@ -6,7 +6,7 @@ The physical layer (DU-low) handles LDPC encoding/decoding, FFT, channel estimat
 
 ## Component tags
 
-`PHY`, `DU-LOW`, `fapi` (lower-layer API between DU-high and DU-low)
+`PHY`, `DU-LOW`, `FAPI` (lower-layer API between DU-high and DU-low)
 
 ## Key log patterns
 

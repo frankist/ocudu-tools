@@ -10,6 +10,8 @@ Radio Resource Control manages UE connection setup, reconfiguration, and release
 
 ## Key log patterns
 
+> **Note:** The exact log line formats below are illustrative. Verify against real logs and update this file when the actual format is observed.
+
 ### UE connection lifecycle
 
 ```
@@ -40,10 +42,10 @@ Radio Resource Control manages UE connection setup, reconfiguration, and release
 
 ```bash
 # UE connection and release events
-grep -E 'RRC.*Setup|RRC.*Complete|RRC.*Release|RRC.*Reconfig' <logfile>
+grep -iE 'RRC.*Setup|RRC.*Complete|RRC.*Release|RRC.*Reconfig' <logfile>
 
 # Handover and reestablishment
-grep -E 'Handover|CHO winner|Reestablishment|RLF' <logfile>
+grep -iE 'Handover|CHO winner|Reestablishment|RLF' <logfile>
 ```
 
 ## What to look for

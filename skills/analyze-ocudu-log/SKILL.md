@@ -1,6 +1,6 @@
 ---
 name: analyze-ocudu-log
-description: This skill should be used when the user explicitly asks to "analyze a log", "look at the logs", "check the gnb log", "debug from logs", "what does the log say", "look at the pcap", "check the CI job", or shares a path to a .log file, .pcap file, console output file, a folder of run artifacts, or a GitLab CI job URL from an OCUDU application (gnb, du, cu, cu_cp, cu_up). It may also be auto-triggered for failed unit tests or runtime failures that include OCUDU-formatted log output — but only after cheaper methods have been exhausted: first try to diagnose from the test assertion message, stack trace, error summary, or surrounding non-log context. Load this skill only when those simpler signals are insufficient and the OCUDU artifacts themselves are needed to understand the failure.
+description: This skill should be used when the user explicitly asks to "analyze a log", "look at the logs", "check the gnb log", "debug from logs", "what does the log say", "look at the pcap", "check the CI job", "investigate this test failure", "why did this CI test fail", "what happened in this run", "analyze the run artifacts", "what's wrong with this job", or shares a path to a .log file, .pcap file, console output file, a folder of run artifacts, or a GitLab CI job URL from an OCUDU application (gnb, du, cu, cu_cp, cu_up). It may also be auto-triggered for failed unit tests or runtime failures that include OCUDU-formatted log output — but only after cheaper methods have been exhausted: first try to diagnose from the test assertion message, stack trace, error summary, or surrounding non-log context. Load this skill only when those simpler signals are insufficient and the OCUDU artifacts themselves are needed to understand the failure.
 version: 2.1.0
 ---
 
@@ -82,7 +82,10 @@ Determine which case applies and follow the corresponding steps:
 
    See **Artifact formats** below for per-type format details and tooling.
 
-   **Cross-file timestamp correlation:** Log and pcap timestamps are both wall-clock. To correlate, extract an event's timestamp from the log (`grep -n`) then filter the pcap to a narrow time window (`tshark -r <f> -t ad -Y 'frame.time >= "..."'`).
+   **Cross-file timestamp correlation:** Log and pcap timestamps are both wall-clock (Unix epoch). To correlate, extract an event's timestamp from the log (`grep -n`), convert it to an epoch range, then filter the pcap:
+   ```bash
+   tshark -r <f> -t ad -Y 'frame.time_epoch >= X.X && frame.time_epoch <= Y.Y'
+   ```
 
 3. **File path provided** — check whether the file's directory contains other artifacts from the same run (e.g. other `.log`, `.pcap`, or `.yml` files). If so, ask the user whether to analyse the whole folder instead. If they confirm, apply case 2; otherwise use the file directly.
 4. **Log content pasted inline** — analyse the pasted content directly; skip size/efficiency checks (the content is already in context).
@@ -162,6 +165,7 @@ After presenting the run summary, offer a numbered menu of analysis options tail
 | Handover scenario identified | Trace the handover procedure |
 | Zero or low throughput with UEs attached | Investigate zero/low throughput |
 | PRACH/random access events | Investigate random access failures |
+| OFH anomalies (`nof_skipped_symbols > 0`, `nof_missed_prach_occasions > 0`, `tx_kpis` non-zero) | Investigate OFH/fronthaul timing issues |
 
 Wait for the user's reply before proceeding. Once they select an option, perform the deep analysis following the steps in `references/analysis-guide.md`. Abide by the efficiency rules throughout: use targeted greps and `sed` line ranges to read only the relevant portions of log files — never read them whole.
 

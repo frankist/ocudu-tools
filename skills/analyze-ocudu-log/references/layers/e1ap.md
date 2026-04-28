@@ -10,6 +10,8 @@ The E1 Application Protocol is the CU-CP–CU-UP interface. E1AP logs show beare
 
 ## Key log patterns
 
+> **Note:** The exact log line formats below are illustrative. Verify against real logs and update this file when the actual format is observed.
+
 ### CU-UP registration
 
 ```
@@ -34,10 +36,10 @@ The E1 Application Protocol is the CU-CP–CU-UP interface. E1AP logs show beare
 
 ```bash
 # Bearer context events
-grep -E 'Bearer context|bearer.*setup|bearer.*release' <logfile>
+grep -iE 'Bearer context|bearer.*setup|bearer.*release' <logfile>
 
 # E1AP interface setup and errors
-grep -E 'E1.*[Ss]etup|E1.*[Ee]rror|E1.*[Ff]ailure' <logfile>
+grep -iE 'E1.*setup|E1.*error|E1.*failure' <logfile>
 ```
 
 ## What to look for

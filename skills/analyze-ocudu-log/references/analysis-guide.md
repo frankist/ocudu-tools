@@ -10,6 +10,7 @@ From `[METRICS]` lines (load `layers/metrics.md` for field names):
 - Per-UE DL/UL throughput breakdown
 - PRACH detections (`nof_prach_preambles` from Scheduler cell metrics)
 - Any windows with zero throughput while UEs were attached
+- For O-RAN FH runs (`OFH` component tags present): OFH timing and sector metrics — check `nof_skipped_symbols`, `nof_missed_prach_occasions`, `nof_missed_uplink_symbols`, and the `tx_kpis` counters
 
 If `references/scripts/metrics.py` exists, run it — it produces a compact summary covering all metric fields:
 ```bash
@@ -42,7 +43,7 @@ For each identified failure, note its **timestamp and slot** precisely:
 - RLF / PRACH failure: grep for the specific event string to get the exact slot
 
 ```bash
-grep -nE 'RLF|radio link failure|PRACH.*fail|msg3.*nok|Random Access' <logfile>
+grep -nE 'RLF|radio link failure|PRACH.*fail|msg3_nok=[^0]|Random Access' <logfile>
 ```
 
 ### Step 3 — Look backward from each failure
@@ -74,6 +75,8 @@ Use its output as the layer summary — skip the manual grep passes it already c
 | `NGAP` | `layers/ngap.md` | Core network rejections, PDU session failures |
 | `E1AP` | `layers/e1ap.md` | User-plane bearer failures, zero throughput with UE connected |
 | `OFH` | `layers/ofh.md` | Any non-zero OFH sector/timing metrics anomaly, RACH failures in O-RAN FH deployments, missed UL symbols or PRACH occasions |
+| `FAPI` | *(no layer file — search source)* | Timing or API failures between DU-high and DU-low |
+| `RLC`, `PDCP`, `SDAP` | *(no layer files — search source)* | User-plane data path above MAC: segmentation errors, ciphering failures, QoS flow mapping |
 
 Use a single combined `grep -E` pass per layer. For very large logs, use `grep -n` to get line numbers first, then `sed` to read only the relevant ranges.
 

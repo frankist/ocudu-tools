@@ -10,6 +10,8 @@ The F1 Application Protocol is the CU–DU interface. F1AP logs show cell setup,
 
 ## Key log patterns
 
+> **Note:** The exact log line formats below are illustrative. Verify against real logs and update this file when the actual format is observed.
+
 ### Cell setup
 
 ```
@@ -40,10 +42,10 @@ The F1 Application Protocol is the CU–DU interface. F1AP logs show cell setup,
 
 ```bash
 # UE context events
-grep -E 'F1.*context|UE context' <logfile>
+grep -iE 'F1.*context|UE context' <logfile>
 
 # F1 interface setup and errors
-grep -E 'F1 Setup|F1.*[Ee]rror|F1.*[Ff]ailure' <logfile>
+grep -iE 'F1 Setup|F1.*error|F1.*failure' <logfile>
 ```
 
 ## What to look for

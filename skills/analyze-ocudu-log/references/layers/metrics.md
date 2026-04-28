@@ -108,7 +108,7 @@ Sector metrics are formatted as `received messages stats: key=value; ether_rx: k
 
 ##### Field reference for `ecpri` set (eCPRI sequence ID stats):
 
-| Field | Meaning | Anomaly signal (real-time only) |
+| Field | Meaning | Anomaly signal |
 |---|---|---|
 | `nof_past_seqid_msg` | Packets whose eCPRI sequence ID is from the past (`nof_skipped_seq_id < 0`) | Must be zero, otherwise such UL messages are dropped |
 | `nof_future_seqid_msg` | Packets whose eCPRI Sequence ID jumped forward (`nof_skipped_seq_id > 0`) | Non-zero value implies packets were lost in the network or the RU didn't send them |
@@ -151,7 +151,7 @@ Flag the spikes in the `cpu_usage` and `max_latency`. Since transmitter works in
 | Field | Meaning | Anomaly signal |
 |---|---|---|
 | `nof_late_dl_rgs` | PHY handed a DL resource grid to OFH too close to (or after) the transmission window deadline (defined by OFH proc. latency and `t1a_max_cp_dl`/`t1a_max_up`) | Must be zero, otherwise data for the entire DL slot are dropped |
-| `nof_late_ul_req` | PHY handed an UL scheduling request to OFH too close to (or after) the transmission window deadline for UL C-Plane (defined by `t1a_max_cp_ul`) | Must be zero, otherwise request is dropped -> no UL data will be send by the RU -> retransmission will be scheduled by the higher layers |
+| `nof_late_ul_req` | PHY handed an UL scheduling request to OFH too close to (or after) the transmission window deadline for UL C-Plane (defined by `t1a_max_cp_ul`) | Must be zero, otherwise request is dropped -> no UL data will be sent by the RU -> retransmission will be scheduled by the higher layers |
 | `nof_late_cp_dl` | DL C-Plane message encoded/compressed too late to be sent inside the configured DL CP Tx window | Must be zero |
 | `nof_late_up_dl` | DL U-Plane message encoded/compressed too late to be sent inside the configured DL UP Tx window | Must be zero |
 | `nof_late_cp_ul` | UL C-Plane message encoded/compressed too late to be sent inside the configured UL CP Tx window | Must be zero |
