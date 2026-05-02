@@ -94,8 +94,10 @@ grep -E '==.*==ERROR:.*Sanitizer' <console_file>
 
 The CONFIG block in the structured log lists all non-default settings. It often fills gaps left by config files (e.g. scheduler tweaks, log levels, PRACH config).
 
+The block is multiline: the first CONFIG line carries the header and continuation lines (YAML key-value pairs) have no timestamp prefix. Use `grep_multiline.py` to retrieve the full entry:
+
 ```bash
-grep '\[CONFIG' <logfile> | head -80
+python3 references/scripts/grep_multiline.py <logfile> '\[CONFIG.*Input configuration'
 ```
 
 Key fields to extract:
@@ -167,6 +169,8 @@ Report peak `total_dl_brate` and `total_ul_brate` across all windows, and the ov
 ---
 
 ## Step 7 — Errors and warnings
+
+Skip this step if the failure is already clear from an earlier step (CI report file, console output, or sanitizer error). Otherwise:
 
 ```bash
 grep -cE '\[E\]|\[W\]' <logfile>              # count first

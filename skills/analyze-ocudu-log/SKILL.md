@@ -168,7 +168,13 @@ After presenting the run summary, offer a numbered menu of analysis options tail
 | PRACH/random access events | Investigate random access failures |
 | OFH anomalies (`nof_skipped_symbols > 0`, `nof_missed_prach_occasions > 0`, `tx_kpis` non-zero) | Investigate OFH/fronthaul timing issues |
 
-Wait for the user's reply before proceeding. Once they select an option, perform the deep analysis following the steps in `references/analysis-guide.md`. Abide by the efficiency rules throughout: use targeted greps and `sed` line ranges to read only the relevant portions of log files — never read them whole.
+Wait for the user's reply before proceeding. Once they select an option, perform the deep analysis following the steps in `references/analysis-guide.md`.
+
+**Efficiency rules — apply throughout all analysis steps:**
+- Never read a log file whole. Use targeted `grep` and `sed` line ranges.
+- Before any grep that may return many lines: count first (`grep -c`), then cap output (`grep -m N`). Never pipe an unbounded grep result into context.
+- Use `references/scripts/grep_multiline.py` to extract full multiline entries instead of reading surrounding line ranges when the entry structure matters.
+- Run parsing scripts in `references/scripts/` before resorting to manual grep passes.
 
 ## Unknown artifact information
 
