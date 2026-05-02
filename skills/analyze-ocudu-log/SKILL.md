@@ -1,12 +1,13 @@
 ---
 name: analyze-ocudu-log
-description: This skill should be used when the user explicitly asks to "analyze a log", "look at the logs", "check the gnb log", "debug from logs", "what does the log say", "look at the pcap", "check the CI job", "investigate this test failure", "why did this CI test fail", "what happened in this run", "analyze the run artifacts", "what's wrong with this job", or shares a path to a .log file, .pcap file, console output file, a folder of run artifacts, or a GitLab CI job URL from an OCUDU application (gnb, du, cu, cu_cp, cu_up). It may also be auto-triggered for failed unit tests or runtime failures that include OCUDU-formatted log output — but only after cheaper methods have been exhausted: first try to diagnose from the test assertion message, stack trace, error summary, or surrounding non-log context. Load this skill only when those simpler signals are insufficient and the OCUDU artifacts themselves are needed to understand the failure.
+description: This skill should be used when the user explicitly asks to "analyze a log", "look at the logs", "check the log", "debug from logs", "what does the log say", "look at the pcap", "check the CI job", "investigate this test failure", "why did this CI test fail", "what happened in this run", "analyze the run artifacts", "what's wrong with this job", or shares a path to a .log file, .pcap file, console output file, a folder of run artifacts, or a GitLab CI job URL from an OCUDU application (gnb, du, cu, cu_cp, cu_up). It may also be auto-triggered for failed unit tests or runtime failures that include OCUDU-formatted log output — but only after cheaper methods have been exhausted: first try to diagnose from the test assertion message, stack trace, error summary, or surrounding non-log context. Load this skill only when those simpler signals are insufficient and the OCUDU artifacts themselves are needed to understand the failure.
+agent: true
 version: 2.1.0
 ---
 
 # Analyze OCUDU Run Artifacts
 
-Analyze artifacts produced by OCUDU applications (`gnb`, `du`, `cu`, `cu_cp`, `cu_up`): structured log files, packet captures, and console output.
+Analyze artifacts produced by OCUDU applications (`gnb`, `du`, `cu`, `cu_cp`, `cu_up`), by 5G core and UE tools (e.g. amarisoft, Open5GS): structured log files, packet captures, and console output.
 
 ## Artifact source
 
@@ -175,11 +176,13 @@ If a log line or protocol event's meaning is unclear and not covered by the laye
 
 ## Memory
 
-After each analysis, append new generalisable findings to the **Accumulated knowledge** section of the relevant `references/layers/*.md` file. Save root causes, newly seen artifact patterns (log lines, pcap exchanges), metric keys, or protocol facts — not per-run values (RNTIs, slot numbers, bitrates).
+After each analysis, append new generalisable findings to the **Accumulated knowledge** section of the relevant `references/layers/*.md` file. Save **log structure insights only**: newly seen log patterns, what a sequence of lines indicates, how to distinguish two superficially similar conditions, or what a field value means. Do **not** save bug descriptions, root causes, implementation details, fix summaries, or numerical observations from a specific run.
 
-Parsing scripts are also part of accumulated knowledge. When a layer requires complex multi-field parsing that would otherwise need multiple grep passes or produce too many raw lines for efficient analysis, write a Python script and save it to `references/scripts/<layer>.py`. Scripts must:
-- Accept a log file path as `sys.argv[1]`
+Parsing scripts are also part of accumulated knowledge. When parsing would otherwise require multiple grep passes or produce too many raw lines for efficient analysis, write a Python script and save it to `references/scripts/`. Scripts must:
+- Import shared helpers from `references/scripts/utils.py` (timestamp parsing, line iteration) rather than duplicating them
+- Accept a log file path as the first positional argument
 - Print a compact human-readable summary to stdout
 - Cover ≥3 structured fields or produce statistical summaries (rates, counts, extremes)
+- Be **general when the log structure appears across multiple layers** — use CLI flags (e.g. `--layer`, `--proc`) to filter, so one script handles all variants. Hard-code a specific layer or procedure only when the structure is unique to that component.
 
-When a script is created or updated, add a `## Parsing script` section to the corresponding layer `.md` file describing what it outputs and when to use it.
+Name scripts by analytical function (`proc_durations.py`), not by layer or procedure. When a script is created or updated, update the `## Parsing script` section in each relevant layer `.md` file to show the exact invocation with the appropriate flags for that layer's use case.

@@ -90,5 +90,3 @@ With `nof_cb_preambles_per_ssb: N` configured, preambles 0–(N−1) are 4-step 
 ## Accumulated knowledge
 
 *Append entries here after analysis sessions: date, what was found, why it matters.*
-
-- 2026-04-25: After commit "prereserve MsgA PUSCH RBs unconditionally", MsgA PUSCH RBs were reserved in the Msg3 reTx UL slot even when a fallbackRAR was sent. This caused every Msg3 reTx to fail with "Not enough available RBs", exhausting the HARQ chain for every UE. Fix: release the reservation when fallbackRAR is chosen.

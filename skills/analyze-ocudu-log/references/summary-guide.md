@@ -213,5 +213,4 @@ State at the top of the summary: **Scenario**: \<one sentence\>. This governs wh
 
 ## Accumulated knowledge
 
-<!-- Append new findings here as runs are analysed -->
-<!-- Format: - YYYY-MM-DD: <what was found and why it matters> -->
+- 2026-04-29: Test mode cycling scenario is detected via `grep "TEST_MODE"` on the `[DU]` component tag. Key lifecycle transitions — "All UEs established", "Releasing", "Guard period elapsed", "Starting new creation cycle" — give a fast pass/fail signal without reading the full log.
