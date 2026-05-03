@@ -9,8 +9,3 @@ TIMESTAMP_RE = re.compile(TIMESTAMP_PAT)
 
 def parse_ts(s):
     return datetime.fromisoformat(s)
-
-
-def iter_lines(path):
-    with open(path) as f:
-        yield from f

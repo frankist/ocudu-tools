@@ -133,7 +133,7 @@ METRICS lines are sparse and give throughput and HARQ KO counts without reading 
 
 If `references/scripts/metrics.py` exists, run it — it scans all windows and computes peaks:
 ```bash
-python3 references/scripts/metrics.py <logfile>
+cat <logfile> | python3 references/scripts/metrics.py
 ```
 
 Otherwise, extract all scheduler cell metric lines (scanning all windows is required to find the peak — `tail` alone can miss an early peak):

@@ -47,7 +47,7 @@ Load the layer file(s) for each component implicated by steps 2–3. Files are i
 
 Before grepping manually, check whether a parsing script in `references/scripts/` covers the layer. If it does, run it — its output replaces multiple grep passes:
 ```bash
-python3 references/scripts/proc_durations.py <logfile> --layer <LAYER> [--proc <proc>]
+cat <logfile> | python3 references/scripts/proc_durations.py --layer <LAYER> [--proc <proc>]
 python3 references/scripts/grep_multiline.py <logfile> [grep-options] '<pattern>'
 ```
 Fall back to grep/sed only when no relevant script exists.
@@ -56,6 +56,7 @@ Fall back to grep/sed only when no relevant script exists.
 |---|---|---|
 | `SCHED` | `layers/sched.md` | `msg3_nok > 0`, RACH issues, HARQ failures, allocation failures, zero throughput |
 | `MAC` | `layers/mac.md` | Cell lifecycle issues, pipeline timing anomalies |
+| `DU-MNG` | `layers/du_mng.md` | UE lifecycle procedure latency, cycling scenarios, stuck cycling diagnosis |
 | `PHY`, `DU-LOW` | `layers/phy.md` | PHY latency spikes, high LDPC iterations |
 | `RRC` | `layers/rrc.md` | UE stuck after RACH, connection drops, RLF |
 | `F1AP` | `layers/f1ap.md` | CU–DU interface failures, UE context errors |
