@@ -33,10 +33,10 @@ The DU manager orchestrates UE lifecycle procedures (create, reconfigure, delete
 
 ```bash
 # UE Create latency across all cycles
-python3 references/scripts/proc_durations.py <logfile> --layer DU-MNG --proc "UE Create" --top 10
+cat <logfile> | python3 references/scripts/proc_durations.py --layer DU-MNG --proc "UE Create" --top 10
 
 # All DU-MNG procedures (UE Create, UE Delete, UE Reconfig, DU Stop, …)
-python3 references/scripts/proc_durations.py <logfile> --layer DU-MNG
+cat <logfile> | python3 references/scripts/proc_durations.py --layer DU-MNG
 ```
 
 Use when: investigating UE setup latency outliers, comparing cycle-to-cycle creation performance, or identifying whether slowdowns are systematic or intermittent.
@@ -44,7 +44,7 @@ Use when: investigating UE setup latency outliers, comparing cycle-to-cycle crea
 ## What to look for
 
 - **UE Create duration >> 5 ms**: Healthy range is ~0.5–2 ms. Outliers of 20–40 ms suggest executor queue backlog (e.g. ctrl_exec saturated by many concurrent UE setups or cycling activity).
-- **UE Delete procedures before the cycling timer fires**: UEs deleted during `creating` state are ones that failed initial access (rrcReject path — `!du_to_cu_rrc_container_present`). These UEs have no gnb_du_ue_f1ap_id captured and will show "Cannot release" warnings at cycle-end.
+- **UE Delete procedures before the cycling timer fires**: UEs deleted during `creating` state never get a `gnb_du_ue_f1ap_id` (rrcReject path — see `f1ap.md`). At cycle-end these appear as `"Cannot release: gnb_du_ue_f1ap_id not found"` warnings.
 - **Many rapid UE Deletes clustered at a single timestamp**: Usually the controller injecting release commands for all UEs at once (cycling mode).
 
 ## Accumulated knowledge

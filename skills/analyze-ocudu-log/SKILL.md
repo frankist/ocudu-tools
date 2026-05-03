@@ -13,55 +13,7 @@ Analyze artifacts produced by OCUDU applications (`gnb`, `du`, `cu`, `cu_cp`, `c
 
 Determine which case applies and follow the corresponding steps:
 
-1. **GitLab CI job URL** — a job may contain several independent runs, each with their own artifacts. Do **not** download any artifacts before the user selects a run. Follow these steps:
-
-   **Step 1 — Fetch the raw job log (lightweight):**
-   ```bash
-   curl -fsSL "https://gitlab.com/<group>/<project>/-/jobs/<job_id>/raw" -o /tmp/job.log
-   # If the project is private: add --header "PRIVATE-TOKEN: $GITLAB_TOKEN"
-   ```
-
-   **Step 2 — Extract the run list:**
-   The raw log contains ANSI escape codes — strip them before processing:
-   ```bash
-   sed 's/\x1b\[[0-9;]*m//g' /tmp/job.log > /tmp/job_clean.log
-   ```
-   For pytest-based jobs, extract the short test summary at the end of the log:
-   ```bash
-   grep -A200 'short test summary info' /tmp/job_clean.log | \
-     grep -E '(FAILED|PASSED|SKIPPED|ERROR) tests/'
-   ```
-   This produces lines like:
-   ```
-   FAILED tests/ue_simulator.py::test_gnb[performance/mobility/paging::paging] - Failed: Test didn't pass the following criteria: 5GS NAS Service Accept, Warnings
-   FAILED tests/ue_simulator.py::test_gnb[performance/mobility/paging::rrc_inactive_t308_expire] - Failed: Stop stage. GNB_1 has 9 errors: RealtimeSanitizer: unsafe-library-call
-   ```
-   The **Retina test framework** (used for OCUDU e2e CI tests) also emits per-component warning summaries at test end — these are high-value fast signals:
-   ```bash
-   grep -E 'has [0-9]+ errors|has [0-9]+ warnings' /tmp/job_clean.log | head -20
-   ```
-   Example output: `[WARNING] GNB_1 has 9 errors and 23705 warnings. First error is: RealtimeSanitizer: unsafe-library-call`
-
-   Build a numbered list from the pytest summary output, showing status, test name, and failure reason. For non-pytest jobs, fall back to:
-   ```bash
-   grep -E '(PASSED|FAILED|SKIPPED|ERROR):' /tmp/job_clean.log
-   ```
-   Present the full list to the user. **Do not proceed until they pick a run.**
-
-   **Step 3 — Download the job artifacts:**
-   There is one artifact archive per job (not per test). Download and inspect its structure:
-   ```bash
-   curl -fsSL "https://gitlab.com/<group>/<project>/-/jobs/<job_id>/artifacts/download" \
-     -o /tmp/job_artifacts.zip
-   unzip -d /tmp/run_artifacts /tmp/job_artifacts.zip
-   find /tmp/run_artifacts -maxdepth 3 | sort
-   ```
-   Artifacts are typically organised in per-test subdirectories: `e2e/<test_name>/gnb.log`, `e2e/<test_name>/ue.pcap`, etc. Inspect the structure returned by `find` to confirm before navigating into a subdirectory.
-
-   There is typically one `Test report ---> <url>` line at the end of the job log, pointing to a consolidated HTML report for the whole job.
-
-   **Step 4 — Proceed as a run folder:**
-   Treat the downloaded files as a run folder and apply **case 2 (Folder path provided)** below.
+1. **GitLab CI job URL** — in case of a URL pointing to a test job is provided, load `references/gitlab-ci-job.md` and follow the steps there.
 
 2. **Folder path provided** — the folder contains artifacts from a single run and provides more context than a single log file. Handle as follows:
 
@@ -185,10 +137,19 @@ If a log line or protocol event's meaning is unclear and not covered by the laye
 After each analysis, append new generalisable findings to the **Accumulated knowledge** section of the relevant `references/layers/*.md` file. Save **log structure insights only**: newly seen log patterns, what a sequence of lines indicates, how to distinguish two superficially similar conditions, or what a field value means. Do **not** save bug descriptions, root causes, implementation details, fix summaries, or numerical observations from a specific run.
 
 Parsing scripts are also part of accumulated knowledge. When parsing would otherwise require multiple grep passes or produce too many raw lines for efficient analysis, write a Python script and save it to `references/scripts/`. Scripts must:
-- Import shared helpers from `references/scripts/utils.py` (timestamp parsing, line iteration) rather than duplicating them
-- Accept a log file path as the first positional argument
+- Import shared helpers from `references/scripts/utils.py` (timestamp parsing) rather than duplicating them
+- Read log content from stdin, so they compose with pipes and work on both whole files and filtered subsets
 - Print a compact human-readable summary to stdout
 - Cover ≥3 structured fields or produce statistical summaries (rates, counts, extremes)
 - Be **general when the log structure appears across multiple layers** — use CLI flags (e.g. `--layer`, `--proc`) to filter, so one script handles all variants. Hard-code a specific layer or procedure only when the structure is unique to that component.
 
 Name scripts by analytical function (`proc_durations.py`), not by layer or procedure. When a script is created or updated, update the `## Parsing script` section in each relevant layer `.md` file to show the exact invocation with the appropriate flags for that layer's use case.
+
+### Maintenance
+
+When the user says "reorganize log knowledge", or whenever outdated or inconsistent information is found in the reference files during an analysis session:
+
+1. Read relevant files under `references/`
+2. Fix wrong or outdated information (log patterns, field names, grep commands)
+3. Remove or merge redundant and duplicate entries across files
+4. Reorganize content within a file if the structure has become unclear.

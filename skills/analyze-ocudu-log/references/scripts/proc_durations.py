@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """
 Measure durations between 'Procedure started' and 'Procedure finished' log lines.
-Works for any component layer and any procedure name.
+Works for any component layer and any procedure name. Reads from stdin.
 
 Usage:
-    python3 proc_durations.py <logfile> [--layer LAYER] [--proc PROC] [--top N]
+    <source> | python3 proc_durations.py [--layer LAYER] [--proc PROC] [--top N]
 
 Examples:
-    python3 proc_durations.py gnb.log --layer DU-MNG --proc "UE Create" --top 10
-    python3 proc_durations.py gnb.log --proc "F1 Setup"
-    python3 proc_durations.py gnb.log --layer RRC
+    cat gnb.log | python3 proc_durations.py --layer DU-MNG --proc "UE Create" --top 10
+    grep 'DU-MNG' gnb.log | python3 proc_durations.py --layer DU-MNG
+    sed -n '1000,5000p' gnb.log | python3 proc_durations.py
 """
 
 import sys
@@ -18,7 +18,7 @@ import argparse
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from utils import parse_ts, iter_lines, TIMESTAMP_PAT
+from utils import parse_ts, TIMESTAMP_PAT
 
 LINE_RE = re.compile(
     r'(?P<ts>' + TIMESTAMP_PAT + r')'
@@ -30,7 +30,6 @@ UE_RE = re.compile(r'\bue=(\d+)')
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('logfile')
     ap.add_argument('--layer', default=None, help='Filter by component tag (e.g. DU-MNG, RRC, F1AP)')
     ap.add_argument('--proc', default=None, help='Filter by procedure name (e.g. "UE Create")')
     ap.add_argument('--top', type=int, default=10, metavar='N', help='Number of slowest entries to show (default: 10)')
@@ -39,7 +38,7 @@ def main():
     starts = {}
     durations = []
 
-    for line in iter_lines(args.logfile):
+    for line in sys.stdin:
         m = LINE_RE.search(line)
         if not m:
             continue
