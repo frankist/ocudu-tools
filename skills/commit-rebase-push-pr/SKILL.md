@@ -128,13 +128,15 @@ Extract repository information:
 
 ## Phase 7. Check for existing PR/MR
 
-Before drafting, check if a PR/MR already exists for `$SOURCE_BRANCH`:
+**This phase is mandatory. Do NOT proceed to Phase 8 without completing it.**
+
+Run the check for `$PLATFORM` and inspect the result before doing anything else:
 
 #### GitHub
 ```bash
 gh pr list --head "$SOURCE_BRANCH" --base "$TARGET_BRANCH" --json url,title --limit 1
 ```
-If the output is non-empty, tell the user: "A PR already exists for `$SOURCE_BRANCH`: <title> (<url>)" and stop the skill.
+If the JSON array is non-empty (i.e. not `[]`), tell the user: "A PR already exists for `$SOURCE_BRANCH`: <title> (<url>)" and stop the skill.
 
 #### GitLab
 ```bash
@@ -142,7 +144,7 @@ ENC=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1],
 curl -sf -H "PRIVATE-TOKEN: $GITLAB_AI_TOKEN" \
   "$GIT_REPO_BASE/api/v4/projects/$ENC/merge_requests?source_branch=$SOURCE_BRANCH&target_branch=$TARGET_BRANCH&state=opened"
 ```
-If the response array is non-empty, tell the user: "An MR already exists for `$SOURCE_BRANCH`: <title> (<web_url>)" and stop the skill.
+If the JSON array is non-empty, tell the user: "An MR already exists for `$SOURCE_BRANCH`: <title> (<web_url>)" and stop the skill.
 
 ## Phase 8. Draft PR/MR Title and Description
 
