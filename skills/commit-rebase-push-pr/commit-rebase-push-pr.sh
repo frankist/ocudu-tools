@@ -229,15 +229,7 @@ fi
 # PHASE 4: Rebase on target branch
 # ============================================================================
 echo ""
-echo "Phase 4: Preparing to rebase on origin/$TARGET_BRANCH..."
-
-if [[ $AUTO_YES == false ]]; then
-  choice=$(prompt_user "Do you want to rebase your branch on origin/$TARGET_BRANCH?" "Yes" "No")
-  if [[ $choice -eq 1 ]]; then
-    echo "Stopping skill. Branch is ready for manual rebase."
-    exit 0
-  fi
-fi
+echo "Phase 4: Rebasing on origin/$TARGET_BRANCH..."
 
 git fetch origin
 
