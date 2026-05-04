@@ -18,7 +18,7 @@ Optional arguments:
 
 - `--title <title>` — PR/MR title (default: auto-derived from branch name or commit message)
 - `--target <branch>` — target branch for rebase and PR/MR (default: remote main branch)
-- `-y` — automatically answer yes to rebase, push, and PR/MR creation confirmations
+- `-y` — automatically answer yes to rebase and PR/MR creation confirmations
 
 Examples:
 - `/commit-rebase-push-pr` — stage changes, commit with prompted message, rebase on main, and optionally push/create PR
@@ -48,7 +48,6 @@ Determine the target branch:
 If `$SOURCE_BRANCH == $TARGET_BRANCH`, write to the console "You are currently on the target branch ('$TARGET_BRANCH'). To commit changes, you should work on a separate branch. What do you want to do?" and present the options:
 - **1. Stop**: exit the skill gracefully with a message.
 - **2. Create and checkout a new branch**: where the user can write the branch name. Validate it (no spaces, valid git branch name, different than `$TARGET_BRANCH`). Run `git checkout -b <name>` and continue to the next step.
-- **3. Work on `$TARGET_BRANCH`**: keep working on the target branch.
 
 ## Phase 2 - Add local changes to staged
 
@@ -101,16 +100,14 @@ If there are conflicts, run `git rebase --abort`, tell the user: "Rebase conflic
 
 ## Phase 5. Push to remote.
 
-If `-y` flag is not set, ask the user: "Do you want to push `$SOURCE_BRANCH` to remote?" with options:
-- **Yes**: run `git push origin --force-with-lease $SOURCE_BRANCH`
-- **No**: Stop the skill gracefully and let the user know the branch is ready to push whenever they want.
+Check if `$REMOTE_MAIN_BRANCH == $SOURCE_BRANCH`. If so, print an error telling the user that it is forbidden to push to remote main branch and stop the skill.
 
-If the user chooses Yes or `-y` flag is set, do the following steps:
-- check if `$REMOTE_MAIN_BRANCH == $SOURCE_BRANCH`. If so, print an error telling the user that it is forbidden to push to remote main branch and stop the skill.
-- run:
+Run:
 ```bash
 git push origin --force-with-lease $SOURCE_BRANCH
 ```
+
+The native tool authorization dialog serves as the push confirmation — do not ask a separate yes/no question. If the user denies the tool authorization, stop the skill gracefully and let them know the branch is ready to push whenever they want.
 
 ## Phase 6. Detect platform and extract repository info
 
@@ -132,7 +129,25 @@ Extract repository information:
 - **GitHub**: Extract `PROJECT_PATH` from the remote URL (e.g., `owner/repo` from `https://github.com/owner/repo.git`)
 - **GitLab**: Extract `GIT_REPO_BASE` (the host base, e.g., `https://gitlab.com`) and `PROJECT_PATH` (the full path including groups, e.g., `group/subgroup/project`)
 
-## Phase 7. Draft PR/MR Title and Description
+## Phase 7. Check for existing PR/MR
+
+Before drafting, check if a PR/MR already exists for `$SOURCE_BRANCH`:
+
+#### GitHub
+```bash
+gh pr list --head "$SOURCE_BRANCH" --base "$TARGET_BRANCH" --json url,title --limit 1
+```
+If the output is non-empty, tell the user: "A PR already exists for `$SOURCE_BRANCH`: <title> (<url>)" and stop the skill.
+
+#### GitLab
+```bash
+ENC=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1],safe=''))" "$PROJECT_PATH")
+curl -sf -H "PRIVATE-TOKEN: $GITLAB_AI_TOKEN" \
+  "$GIT_REPO_BASE/api/v4/projects/$ENC/merge_requests?source_branch=$SOURCE_BRANCH&target_branch=$TARGET_BRANCH&state=opened"
+```
+If the response array is non-empty, tell the user: "An MR already exists for `$SOURCE_BRANCH`: <title> (<web_url>)" and stop the skill.
+
+## Phase 8. Draft PR/MR Title and Description
 
 To compare the local branch `SOURCE_BRANCH` with the target branch, run:
 ```bash
@@ -146,7 +161,7 @@ If there are no commits ahead (empty output), stop the skill gracefully and tell
 2. If there is exactly one commit ahead, use that commit's subject line.
 3. Otherwise, prettify the branch name: replace `-` and `_` with spaces, capitalize the first word.
 
-**Description:** A plain bullet list of commit subjects from step 6 (gathered context), oldest first:
+**Description:** A plain bullet list of commit subjects from the git log output above, oldest first:
 ```
 - <oldest commit subject>
 - ...
@@ -155,7 +170,7 @@ If there are no commits ahead (empty output), stop the skill gracefully and tell
 
 If there is only one commit and it has a body, use the body as the description instead of a bullet list.
 
-## Phase 8. Confirm with the User
+## Phase 9. Confirm with the User
 
 Present the draft before creating anything:
 
@@ -174,6 +189,8 @@ About to create PR/MR:
 Proceed? (yes / edit title / edit description / cancel)
 ```
 
+If `-y` flag is set, automatically proceed as if the user answered "yes".
+
 Where `<review_url>` is determined by `$PLATFORM`:
 - GitHub: `https://github.com/<PROJECT_PATH>/compare/<TARGET_BRANCH>...<SOURCE_BRANCH>`
 - GitLab: `<GIT_REPO_BASE>/<PROJECT_PATH>/-/merge_requests/new`
@@ -183,7 +200,7 @@ Where `<review_url>` is determined by `$PLATFORM`:
 - **edit description** — ask for replacement description text, then re-show the draft.
 - **cancel** — stop with "PR/MR creation cancelled."
 
-## Phase 9. Create PR/MR
+## Phase 10. Create PR/MR
 
 Based on `$PLATFORM`, execute the appropriate command:
 
