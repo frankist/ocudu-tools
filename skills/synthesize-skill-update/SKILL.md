@@ -2,6 +2,7 @@
 name: synthesize-skill-update
 description: Use when reviewing a user branch or PR that proposes changes to skill files. Synthesizes useful knowledge from the branch into a clean, general update ready for main.
 version: 1.0.0
+context: fork
 ---
 
 # Synthesize Skill Update

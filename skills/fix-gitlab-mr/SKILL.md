@@ -5,8 +5,9 @@ description: >
   failing CI pipeline jobs. Trigger phrases: "fix this MR", "CI is failing on", "the
   pipeline failed", "fix the failing job", "look at this MR", followed by or combined
   with a GitLab MR URL or MR number.
-agent: true
 version: 1.0.0
+user-invocable: true
+context: fork
 ---
 
 # fix-gitlab-mr

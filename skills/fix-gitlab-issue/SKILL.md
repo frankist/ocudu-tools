@@ -5,8 +5,9 @@ description: >
   work on it, or reproduce it. Trigger phrases: "fix this issue", "fix issue #N",
   "look at this gitlab issue", "work on this ticket", "work on this issue",
   followed by or combined with a GitLab URL or issue number.
-agent: true
 version: 1.0.0
+user-invocable: true
+context: fork
 ---
 
 # fix-gitlab-issue
