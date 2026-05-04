@@ -1,8 +1,9 @@
 ---
 name: analyze-ocudu-log
 description: This skill should be used when the user explicitly asks to "analyze a log", "look at the logs", "check the log", "debug from logs", "what does the log say", "look at the pcap", "check the CI job", "investigate this test failure", "why did this CI test fail", "what happened in this run", "analyze the run artifacts", "what's wrong with this job", or shares a path to a .log file, .pcap file, console output file, a folder of run artifacts, or a GitLab CI job URL from an OCUDU application (gnb, du, cu, cu_cp, cu_up). It may also be auto-triggered for failed unit tests or runtime failures that include OCUDU-formatted log output — but only after cheaper methods have been exhausted: first try to diagnose from the test assertion message, stack trace, error summary, or surrounding non-log context. Load this skill only when those simpler signals are insufficient and the OCUDU artifacts themselves are needed to understand the failure.
-agent: true
 version: 2.1.0
+user-invocable: true
+context: fork
 ---
 
 # Analyze OCUDU Run Artifacts

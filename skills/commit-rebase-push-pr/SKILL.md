@@ -2,9 +2,7 @@
 name: commit-rebase-push-pr
 description: Stage tracked changes, handle untracked files, commit with a good message, rebase on a target branch, push to remote, and create a PR/MR.
 version: 1.0.0
-disable-model-invocation: true
 user-invocable: true
-allowed-tools: false
 context: fork
 ---
 
