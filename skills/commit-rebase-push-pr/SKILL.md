@@ -18,7 +18,7 @@ Optional arguments:
 
 - `--title <title>` — PR/MR title (default: auto-derived from branch name or commit message)
 - `--target <branch>` — target branch for rebase and PR/MR (default: remote main branch)
-- `-y` — automatically answer yes to rebase and PR/MR creation confirmations
+- `-y` — automatically answer yes to PR/MR creation confirmations
 
 Examples:
 - `/commit-rebase-push-pr` — stage changes, commit with prompted message, rebase on main, and optionally push/create PR
@@ -86,15 +86,12 @@ If there are staged changes:
 
 ## Phase 4. Rebase on target branch.
 
-If `-y` flag is not set, ask the user: "Do you want to rebase your branch on `origin/$TARGET_BRANCH`?" with options:
-- **Yes**: Proceed with rebase
-- **No**: Stop the skill gracefully
-
-If the user chooses Yes or `-y` flag is set:
 ```bash
 git fetch origin
 git rebase origin/${TARGET_BRANCH}
 ```
+
+The native tool authorization dialog serves as the rebase confirmation — do not ask a separate yes/no question. If the user denies the tool authorization, stop the skill gracefully.
 
 If there are conflicts, run `git rebase --abort`, tell the user: "Rebase conflicts detected in: <list of conflicted files>. Please resolve them manually and re-run the skill." and stop skill.
 
