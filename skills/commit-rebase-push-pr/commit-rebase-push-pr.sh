@@ -82,7 +82,7 @@ if [[ "$SOURCE_BRANCH" == "$TARGET_BRANCH" ]]; then
   echo ""
   echo -e "${RED}You are currently on the target branch ('$TARGET_BRANCH'). To commit changes, you should work on a separate branch. What do you want to do?${NC}"
 
-  choice=$(prompt_user "" "Stop" "Create and checkout a new branch" "Work on $TARGET_BRANCH")
+  choice=$(prompt_user "" "Stop" "Create and checkout a new branch")
 
   case $choice in
     0)
@@ -106,9 +106,6 @@ if [[ "$SOURCE_BRANCH" == "$TARGET_BRANCH" ]]; then
       git checkout -b "$new_branch"
       SOURCE_BRANCH="$new_branch"
       echo "Created and switched to branch: $SOURCE_BRANCH"
-      ;;
-    2)
-      echo "Proceeding on $TARGET_BRANCH..."
       ;;
   esac
 fi
@@ -259,15 +256,7 @@ fi
 # PHASE 5: Push to remote
 # ============================================================================
 echo ""
-echo "Phase 5: Preparing to push to remote..."
-
-if [[ $AUTO_YES == false ]]; then
-  choice=$(prompt_user "Do you want to push $SOURCE_BRANCH to remote?" "Yes" "No")
-  if [[ $choice -eq 1 ]]; then
-    echo "Stopping skill. Branch is ready for manual push."
-    exit 0
-  fi
-fi
+echo "Phase 5: Pushing to remote..."
 
 if [[ "$REMOTE_MAIN_BRANCH" == "$SOURCE_BRANCH" ]]; then
   echo -e "${RED}Error: It is forbidden to push to the remote main branch ($SOURCE_BRANCH).${NC}"
@@ -324,10 +313,36 @@ fi
 echo "  Project path: $PROJECT_PATH"
 
 # ============================================================================
-# PHASE 7: Draft PR/MR Title and Description
+# PHASE 7: Check for existing PR/MR
 # ============================================================================
 echo ""
-echo "Phase 7: Drafting PR/MR title and description..."
+echo "Phase 7: Checking for existing PR/MR..."
+
+if [[ "$PLATFORM" == "github" ]]; then
+  EXISTING=$(gh pr list --head "$SOURCE_BRANCH" --base "$TARGET_BRANCH" --json url,title --limit 1 2>/dev/null)
+  if [[ -n "$EXISTING" ]] && [[ "$EXISTING" != "[]" ]]; then
+    EXISTING_TITLE=$(echo "$EXISTING" | python3 -c "import sys,json; pr=json.load(sys.stdin)[0]; print(pr['title'])")
+    EXISTING_URL=$(echo "$EXISTING" | python3 -c "import sys,json; pr=json.load(sys.stdin)[0]; print(pr['url'])")
+    echo "A PR already exists for $SOURCE_BRANCH: $EXISTING_TITLE ($EXISTING_URL)"
+    exit 0
+  fi
+elif [[ "$PLATFORM" == "gitlab" ]]; then
+  ENC=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1],safe=''))" "$PROJECT_PATH")
+  EXISTING=$(curl -sf -H "PRIVATE-TOKEN: ${GITLAB_AI_TOKEN:-}" \
+    "$GIT_REPO_BASE/api/v4/projects/$ENC/merge_requests?source_branch=$SOURCE_BRANCH&target_branch=$TARGET_BRANCH&state=opened" 2>/dev/null)
+  if [[ -n "$EXISTING" ]] && [[ "$EXISTING" != "[]" ]]; then
+    EXISTING_TITLE=$(echo "$EXISTING" | python3 -c "import sys,json; mr=json.load(sys.stdin)[0]; print(mr['title'])")
+    EXISTING_URL=$(echo "$EXISTING" | python3 -c "import sys,json; mr=json.load(sys.stdin)[0]; print(mr['web_url'])")
+    echo "An MR already exists for $SOURCE_BRANCH: $EXISTING_TITLE ($EXISTING_URL)"
+    exit 0
+  fi
+fi
+
+# ============================================================================
+# PHASE 8: Draft PR/MR Title and Description
+# ============================================================================
+echo ""
+echo "Phase 8: Drafting PR/MR title and description..."
 
 # Get commits ahead of target branch
 COMMIT_LOG=$(git log "origin/${TARGET_BRANCH}...HEAD" --oneline 2>/dev/null | head -20)
@@ -375,7 +390,7 @@ else
 fi
 
 # ============================================================================
-# PHASE 8: Confirm with user
+# PHASE 9: Confirm with user
 # ============================================================================
 echo ""
 echo "About to create PR/MR:"
@@ -390,8 +405,14 @@ echo "$FINAL_DESCRIPTION" | sed 's/^/  /'
 echo "  ---"
 echo ""
 
+if [[ $AUTO_YES == true ]]; then
+  response="yes"
+fi
+
 while true; do
-  read -p "Proceed? (yes / edit title / edit description / cancel): " response
+  if [[ $AUTO_YES == false ]]; then
+    read -p "Proceed? (yes / edit title / edit description / cancel): " response
+  fi
   case "$response" in
     yes)
       break
@@ -439,10 +460,10 @@ while true; do
 done
 
 # ============================================================================
-# PHASE 9: Create PR/MR
+# PHASE 10: Create PR/MR
 # ============================================================================
 echo ""
-echo "Phase 9: Creating PR/MR..."
+echo "Phase 10: Creating PR/MR..."
 
 if [[ "$PLATFORM" == "github" ]]; then
   # GitHub PR creation
