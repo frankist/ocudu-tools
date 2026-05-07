@@ -10,7 +10,7 @@ allowed-tools: Bash(${CLAUDE_SKILL_DIR}/scripts/get_context.sh:*), Bash(git diff
 
 # Commit, Rebase, Push, and Create PR/MR
 
-Finalizes your work by creating a well-crafted commit, rebasing on a target branch (default: remote main), pushing to remote, and creating a PR/MR. It ensures you don't commit directly on the target branch.
+Finalizes your work by creating a well-crafted commit, rebasing on a target branch (default: remote main), pushing to remote, and creating a PR/MR, if it doesn't yet exist. It ensures you don't commit directly on the target branch, you don't create duplicate PRs/MRs for the same branch.
 
 On completion, return a summary saying if the commit, rebase and PR were successful.
 
@@ -44,9 +44,11 @@ When asking the user to choose between options, prefer the native AskUserQuestio
 ${CLAUDE_SKILL_DIR}/scripts/get_context.sh "$ARGUMENTS"
 ```
 
-Read the KEY=VALUE output and save: `REMOTE_MAIN_BRANCH`, `SOURCE_BRANCH`, `TARGET_BRANCH`, `COMMIT_NEEDED`, `PLATFORM`, `GIT_REPO_BASE`, `PROJECT_PATH`.
+Read the KEY=VALUE output and save: `REMOTE_MAIN_BRANCH`, `SOURCE_BRANCH`, `TARGET_BRANCH`, `COMMIT_NEEDED`, `PLATFORM`, `GIT_REPO_BASE`, `PROJECT_PATH`, `USER_EMAIL`, `EXISTING_PR_TITLE`, `EXISTING_PR_URL`.
 
-If `COMMIT_NEEDED=false`, skip Phase 2.
+If `COMMIT_NEEDED=false`, skip Phase 2, and tell the user: "No pending changes to commit".
+
+If `EXISTING_PR_TITLE` is non-empty, skip Phases 5 and after and tell the user: "A PR/MR already exists for `$SOURCE_BRANCH`: <EXISTING_PR_TITLE> (<EXISTING_PR_URL>)".
 
 ## Phase 2. Commit with a good message
 
@@ -62,7 +64,7 @@ Using the AskUserQuestion, ask the user if they agree or want to make changes. D
 git rebase origin/${TARGET_BRANCH}
 ```
 
-If there are conflicts, run `git rebase --abort`, tell the user: "Rebase conflicts detected in: <list of conflicted files>. Please resolve them manually and re-run the skill." and stop skill.
+If there are conflicts, run `git rebase --abort`, tell the user: "ERROR: Rebase conflicts detected in: <list of conflicted files>. Please resolve them manually and re-run the skill." and stop skill.
 
 ## Phase 4. Push to remote.
 
@@ -71,27 +73,7 @@ Run:
 git push origin --force-with-lease $SOURCE_BRANCH
 ```
 
-## Phase 5. Check for existing PR/MR
-
-**This phase is mandatory. Do NOT proceed to Phase 6 without completing it.**
-
-Run the check for `$PLATFORM` and inspect the result before doing anything else:
-
-#### GitHub
-```bash
-gh pr list --head "$SOURCE_BRANCH" --base "$TARGET_BRANCH" --json url,title --limit 1
-```
-If the JSON array is non-empty (i.e. not `[]`), tell the user: "A PR already exists for `$SOURCE_BRANCH`: <title> (<url>)" and stop the skill.
-
-#### GitLab
-```bash
-ENC=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1],safe=''))" "$PROJECT_PATH")
-curl -sf -H "PRIVATE-TOKEN: $GITLAB_AI_TOKEN" \
-  "$GIT_REPO_BASE/api/v4/projects/$ENC/merge_requests?source_branch=$SOURCE_BRANCH&target_branch=$TARGET_BRANCH&state=opened"
-```
-If the JSON array is non-empty, tell the user: "An MR already exists for `$SOURCE_BRANCH`: <title> (<web_url>)" and stop the skill.
-
-## Phase 6. Draft PR/MR Title and Description
+## Phase 5. Draft PR/MR Title and Description
 
 To compare the local branch `SOURCE_BRANCH` with the target branch, run:
 ```bash
@@ -114,7 +96,7 @@ If there are no commits ahead (empty output), stop the skill gracefully and tell
 
 If there is only one commit and it has a body, use the body as the description instead of a bullet list.
 
-## Phase 7. Confirm with the User
+## Phase 6. Confirm with the User
 
 Present the draft before creating anything:
 
@@ -137,12 +119,13 @@ Where `<review_url>` is determined by `$PLATFORM`:
 - GitHub: `https://github.com/<PROJECT_PATH>/compare/<TARGET_BRANCH>...<SOURCE_BRANCH>`
 - GitLab: `<GIT_REPO_BASE>/<PROJECT_PATH>/-/merge_requests/new`
 
+Using the AskUserQuestion, ask the user what he wants to do with the PR/MR. Present the options:
 - **yes** — continue to next phase.
 - **edit title** — ask for a new title, then re-show the draft.
 - **edit description** — ask for replacement description text, then re-show the draft.
 - **cancel** — stop with "PR/MR creation cancelled."
 
-## Phase 8. Create PR/MR
+## Phase 7. Create PR/MR
 
 Based on `$PLATFORM`, execute the appropriate command:
 
@@ -159,11 +142,11 @@ gh pr create \
 bash "$SKILL_DIR/scripts/create_mr.sh" \
   "$GIT_REPO_BASE" "$PROJECT_PATH" \
   "$SOURCE_BRANCH" "$TARGET_BRANCH" \
-  "$TITLE" "$DESCRIPTION"
+  "$TITLE" "$DESCRIPTION" "$USER_EMAIL"
 ```
 If `create_mr.sh` exits non-zero, print its stderr output and stop.
 
-The script assigns the PR/MR to the git user matching `git config user.email`.
+The script assigns the PR/MR to the git user matching `$USER_EMAIL`.
 
 On success the script outputs the MR web URL. Display:
 ```
