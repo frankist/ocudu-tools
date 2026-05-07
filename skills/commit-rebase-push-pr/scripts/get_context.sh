@@ -42,6 +42,21 @@ fi
 STAGED="$(echo "$PENDING_STATUS" | grep '^[^ ?]' || true)"
 COMMIT_NEEDED=false
 [ -n "$STAGED" ] && COMMIT_NEEDED=true
+USER_EMAIL=$(git config user.email)
+
+EXISTING_PR_TITLE=""
+EXISTING_PR_URL=""
+if [ "$PLATFORM" = "github" ]; then
+  EXISTING_PR_JSON=$(gh pr list --head "$SOURCE_BRANCH" --base "$TARGET_BRANCH" --json title,url --limit 1 2>/dev/null || echo "[]")
+  EXISTING_PR_TITLE=$(echo "$EXISTING_PR_JSON" | python3 -c "import json,sys; items=json.load(sys.stdin); print(items[0]['title'] if items else '')")
+  EXISTING_PR_URL=$(echo "$EXISTING_PR_JSON" | python3 -c "import json,sys; items=json.load(sys.stdin); print(items[0]['url'] if items else '')")
+elif [ "$PLATFORM" = "gitlab" ]; then
+  ENC=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1],safe=''))" "$PROJECT_PATH")
+  EXISTING_PR_JSON=$(curl -sf -H "PRIVATE-TOKEN: $GITLAB_AI_TOKEN" \
+    "$GIT_REPO_BASE/api/v4/projects/$ENC/merge_requests?source_branch=$SOURCE_BRANCH&target_branch=$TARGET_BRANCH&state=opened" 2>/dev/null || echo "[]")
+  EXISTING_PR_TITLE=$(echo "$EXISTING_PR_JSON" | python3 -c "import json,sys; items=json.load(sys.stdin); print(items[0]['title'] if items else '')")
+  EXISTING_PR_URL=$(echo "$EXISTING_PR_JSON" | python3 -c "import json,sys; items=json.load(sys.stdin); print(items[0]['web_url'] if items else '')")
+fi
 
 echo "REMOTE_MAIN_BRANCH=$REMOTE_MAIN_BRANCH"
 echo "SOURCE_BRANCH=$SOURCE_BRANCH"
@@ -50,3 +65,6 @@ echo "COMMIT_NEEDED=$COMMIT_NEEDED"
 echo "PLATFORM=$PLATFORM"
 echo "GIT_REPO_BASE=$GIT_REPO_BASE"
 echo "PROJECT_PATH=$PROJECT_PATH"
+echo "USER_EMAIL=$USER_EMAIL"
+echo "EXISTING_PR_TITLE=$EXISTING_PR_TITLE"
+echo "EXISTING_PR_URL=$EXISTING_PR_URL"
