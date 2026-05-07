@@ -4,6 +4,8 @@ description: This skill should be used when the user explicitly asks to "analyze
 version: 2.1.0
 user-invocable: true
 context: fork
+agent: Explore
+allowed-tools: Bash(ls:*)
 ---
 
 # Analyze OCUDU Run Artifacts

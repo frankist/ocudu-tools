@@ -4,129 +4,76 @@ description: Stage tracked changes, handle untracked files, commit with a good m
 version: 1.0.0
 user-invocable: true
 context: fork
+agent: Explore
+allowed-tools: Bash(${CLAUDE_SKILL_DIR}/scripts/get_context.sh:*), Bash(git diff:*)
 ---
 
 # Commit, Rebase, Push, and Create PR/MR
 
-Finalizes your work by staging changes, creating a well-crafted commit, rebasing on a target branch (default: remote main), pushing to remote, and creating a PR/MR. It ensures you don't commit directly on the target branch.
+Finalizes your work by creating a well-crafted commit, rebasing on a target branch (default: remote main), pushing to remote, and creating a PR/MR. It ensures you don't commit directly on the target branch.
+
+On completion, return a summary saying if the commit, rebase and PR were successful.
 
 ## Input
 
 Optional arguments:
 
-- `--title <title>` — PR/MR title (default: auto-derived from branch name or commit message)
-- `--target <branch>` — target branch for rebase and PR/MR (default: remote main branch)
-- `-y` — automatically answer yes to PR/MR creation confirmations
+- `<target branch>` — target branch for rebase and PR/MR (default: remote main branch)
 
 Examples:
 - `/commit-rebase-push-pr` — stage changes, commit with prompted message, rebase on main, and optionally push/create PR
-- `/commit-rebase-push-pr -y` — same as above but automatically proceed without prompts
-- `/commit-rebase-push-pr --title "Fix login validation"` — supply custom PR/MR title (commit message is prompted separately)
-- `/commit-rebase-push-pr --target develop` — rebase on and target the develop branch instead of main
-- `/commit-rebase-push-pr --title "Fix login validation" --target develop -y` — custom PR/MR title, custom target, automatic mode
+- `/commit-rebase-push-pr some_branch` — rebase on and target the some_branch branch instead of main
 
-## Phase 1 - Resolve branches.
+## Interaction and continuation rules
 
-To determine the name of the remote origin main branch, run:
-```bash
-git ls-remote --symref origin HEAD | awk '/^ref:/ { sub("refs/heads/", "", $2); print $2 }'
-```
-and save it to the variable `REMOTE_MAIN_BRANCH`.
+This skill may need missing information from the user.
 
-To determine the source branch, run:
-```bash
-git branch --show-current
-```
-and save it in `SOURCE_BRANCH`.
+When required information is missing:
+1. Ask only for the missing information.
+2. Before asking, state exactly what step will resume after the user replies.
+3. Do not consider the task complete.
+4. When the user replies with the requested information, continue from the next unfinished step of this skill.
+5. Do not restart the workflow unless the user explicitly asks to restart.
+6. Keep a brief checklist of completed and pending steps in your response so the next turn has enough context.
 
-Determine the target branch:
-- If `--target` argument is supplied, use it as `TARGET_BRANCH`
-- Otherwise, set `TARGET_BRANCH=$REMOTE_MAIN_BRANCH`
+When asking the user to choose between options, prefer the native AskUserQuestion / interactive choice UI. If unavailable, present the same choices as a numbered list and ask the user to reply with the number or custom answer. Always continue the workflow after the user replies, unless they explicitly requested to stop the skill.
 
-If `$SOURCE_BRANCH == $TARGET_BRANCH`, write to the console "You are currently on the target branch ('$TARGET_BRANCH'). To commit changes, you should work on a separate branch. What do you want to do?" and present the options:
-- **1. Stop**: exit the skill gracefully with a message.
-- **2. Create and checkout a new branch**: where the user can write the branch name. Validate it (no spaces, valid git branch name, different than `$TARGET_BRANCH`). Run `git checkout -b <name>` and continue to the next step.
+## Phase 1 - Repository context.
 
-## Phase 2 - Add local changes to staged
-
-Check for pending changes first:
-```bash
-git status --porcelain
+```!
+${CLAUDE_SKILL_DIR}/scripts/get_context.sh "$ARGUMENTS"
 ```
 
-If there are no modified tracked files and no untracked files, skip to Phase 4. (The user may have already committed changes, and we can proceed with rebase/push/PR.)
+Read the KEY=VALUE output and save: `REMOTE_MAIN_BRANCH`, `SOURCE_BRANCH`, `TARGET_BRANCH`, `COMMIT_NEEDED`, `PLATFORM`, `GIT_REPO_BASE`, `PROJECT_PATH`.
 
-If there are untracked files:
-- Count them and display the list (capped to the first few lines)
-- Ask: "Found N untracked files. What should I do?" with options:
-  - **Abort**: stop the skill
-  - **Add all**: `git add <all untracked files>`
-  - **Delete all**: `rm -rf` on all untracked files (confirm with user first)
-  - **Exclude all**: `echo '<file>' >> .git/info/exclude` for each untracked file
+If `COMMIT_NEEDED=false`, skip Phase 2.
 
-For modified tracked files, run:
-```bash
-git add -u
-```
-to stage all tracked modifications.
+## Phase 2. Commit with a good message
 
-## Phase 3. Commit with a good message
+Based on the results of the `git diff`, generate a commit message with:
+- **Subject line** (required): first line of commit message in imperative mood (~50 chars)
+- **Body** (optional): additional context explaining the why. User enters blank line to finish.
 
-If there are no staged changes, skip this phase and proceed to Phase 4.
+Using the AskUserQuestion, ask the user if they agree or want to make changes. Do not add Co-Authored-By trailers. Once the commit is successful, move to Phase 3.
 
-If there are staged changes:
-1. Display what's being committed via `git diff --staged --name-status`
-2. Prompt the user for a commit message:
-   - **Subject line** (required): first line of commit message in imperative mood (~50 chars)
-   - **Body** (optional): additional context explaining the why. User enters blank line to finish.
-3. Commit with the provided message, without Co-Authored-By trailers
-4. Example subject: `Fix login flow validation bug`
-
-## Phase 4. Rebase on target branch.
+## Phase 3. Rebase on target branch.
 
 ```bash
-git fetch origin
 git rebase origin/${TARGET_BRANCH}
 ```
 
-The native tool authorization dialog serves as the rebase confirmation — do not ask a separate yes/no question. If the user denies the tool authorization, stop the skill gracefully.
-
 If there are conflicts, run `git rebase --abort`, tell the user: "Rebase conflicts detected in: <list of conflicted files>. Please resolve them manually and re-run the skill." and stop skill.
 
-## Phase 5. Push to remote.
-
-Check if `$REMOTE_MAIN_BRANCH == $SOURCE_BRANCH`. If so, print an error telling the user that it is forbidden to push to remote main branch and stop the skill.
+## Phase 4. Push to remote.
 
 Run:
 ```bash
 git push origin --force-with-lease $SOURCE_BRANCH
 ```
 
-The native tool authorization dialog serves as the push confirmation — do not ask a separate yes/no question. If the user denies the tool authorization, stop the skill gracefully and let them know the branch is ready to push whenever they want.
+## Phase 5. Check for existing PR/MR
 
-## Phase 6. Detect platform and extract repository info
-
-If `-y` flag is not set, ask the user: "Do you want to create a PR/MR for your branch with target `origin/$TARGET_BRANCH`?" with options:
-- **Yes**: Proceed with PR/MR
-- **No**: Stop the skill gracefully
-
-If the user chooses Yes or `-y` flag is set, determine the platform and extract necessary variables:
-
-```bash
-GIT_REMOTE=$(git config --get remote.origin.url)
-```
-
-Detect platform:
-- **GitHub**: if `$GIT_REMOTE` contains `github.com`, set `PLATFORM=github`
-- **GitLab**: if `$GIT_REMOTE` contains `gitlab.com` or other GitLab hosts, set `PLATFORM=gitlab`
-
-Extract repository information:
-- **GitHub**: Extract `PROJECT_PATH` from the remote URL (e.g., `owner/repo` from `https://github.com/owner/repo.git`)
-- **GitLab**: Extract `GIT_REPO_BASE` (the host base, e.g., `https://gitlab.com`) and `PROJECT_PATH` (the full path including groups, e.g., `group/subgroup/project`)
-
-## Phase 7. Check for existing PR/MR
-
-**This phase is mandatory. Do NOT proceed to Phase 8 without completing it.**
+**This phase is mandatory. Do NOT proceed to Phase 6 without completing it.**
 
 Run the check for `$PLATFORM` and inspect the result before doing anything else:
 
@@ -144,7 +91,7 @@ curl -sf -H "PRIVATE-TOKEN: $GITLAB_AI_TOKEN" \
 ```
 If the JSON array is non-empty, tell the user: "An MR already exists for `$SOURCE_BRANCH`: <title> (<web_url>)" and stop the skill.
 
-## Phase 8. Draft PR/MR Title and Description
+## Phase 6. Draft PR/MR Title and Description
 
 To compare the local branch `SOURCE_BRANCH` with the target branch, run:
 ```bash
@@ -167,7 +114,7 @@ If there are no commits ahead (empty output), stop the skill gracefully and tell
 
 If there is only one commit and it has a body, use the body as the description instead of a bullet list.
 
-## Phase 9. Confirm with the User
+## Phase 7. Confirm with the User
 
 Present the draft before creating anything:
 
@@ -186,8 +133,6 @@ About to create PR/MR:
 Proceed? (yes / edit title / edit description / cancel)
 ```
 
-If `-y` flag is set, automatically proceed as if the user answered "yes".
-
 Where `<review_url>` is determined by `$PLATFORM`:
 - GitHub: `https://github.com/<PROJECT_PATH>/compare/<TARGET_BRANCH>...<SOURCE_BRANCH>`
 - GitLab: `<GIT_REPO_BASE>/<PROJECT_PATH>/-/merge_requests/new`
@@ -197,7 +142,7 @@ Where `<review_url>` is determined by `$PLATFORM`:
 - **edit description** — ask for replacement description text, then re-show the draft.
 - **cancel** — stop with "PR/MR creation cancelled."
 
-## Phase 10. Create PR/MR
+## Phase 8. Create PR/MR
 
 Based on `$PLATFORM`, execute the appropriate command:
 
