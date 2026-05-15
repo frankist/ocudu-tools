@@ -5,7 +5,7 @@ version: 2.1.0
 user-invocable: true
 context: fork
 agent: Explore
-allowed-tools: Bash(ls:*)
+allowed-tools: Bash(ls:*), Bash(grep:*), Bash(cat:*)
 ---
 
 # Analyze OCUDU Run Artifacts

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # fetch_issue.sh <gitlab_base_url> <project_path> <issue_iid>
-# Requires GITLAB_TOKEN env var. Outputs: {"issue":{...},"notes":[...]}
+# Requires GITLAB_AI_TOKEN env var. Outputs: {"issue":{...},"notes":[...]}
 set -euo pipefail
 
 GITLAB_URL="$1"

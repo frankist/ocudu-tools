@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # create_mr.sh <gitlab_base_url> <project_path> <source_branch> <target_branch> <title> <description>
-# Requires GITLAB_TOKEN env var. Outputs: MR web URL.
+# Requires GITLAB_AI_TOKEN env var. Outputs: MR web URL.
 set -euo pipefail
 
 GITLAB_URL="$1"

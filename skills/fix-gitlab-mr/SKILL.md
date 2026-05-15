@@ -157,9 +157,10 @@ cmake -S "$WORKTREE_PATH" -B "$BUILD_PATH" \
   -DCMAKE_BUILD_TYPE=RelWithDebInfo \
   -G Ninja \
   -DLINKER=mold \
-  -DBUILD_TESTING=On
+  -DBUILD_TESTING=On \
+  -DCMAKE_CXX_COMPILER_LAUNCHER=
 ```
-**Do NOT pass** `-DCMAKE_CXX_COMPILER_LAUNCHER=ccache`. The worktree source lives at a different absolute path than the user's checkout, so every object would be a cache miss and would pollute the user's ccache with stale entries.
+Pass `-DCMAKE_CXX_COMPILER_LAUNCHER=` (empty) to explicitly disable ccache even if the project enables it by default — the temporary build directory gets no cache hits and would only contaminate the user's ccache with throwaway objects.
 
 ## Phase 6 — Implement Fix
 
