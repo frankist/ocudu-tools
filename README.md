@@ -61,7 +61,7 @@ Clone the repo and symlink it into Claude Code's skills directory so your change
 
 ```bash
 git clone https://github.com/frankist/ocudu-tools ~/ocudu-tools
-ln -s ~/ocudu-tools ~/.claude/plugins/ocudu-tools
+ln -s ~/ocudu-tools ~/.claude/skills/ocudu-tools
 ```
 
 With this setup you can branch, edit layer reference files or skill instructions, and commit your findings — then open a PR to share them back.
