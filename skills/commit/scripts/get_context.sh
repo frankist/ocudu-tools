@@ -27,9 +27,11 @@ fi
 
 CURRENT_BRANCH=$("${GIT[@]}" branch --show-current)
 MAIN_BRANCH=$("${GIT[@]}" symbolic-ref refs/remotes/origin/HEAD | sed 's@refs/remotes/origin/@@')
+STATUS_BLOCKED=$("${GIT[@]}" status --porcelain | grep -E '^(\?\?|.[MDRC])' || true)
 
 echo "current branch: $CURRENT_BRANCH"
 echo "main branch:    $MAIN_BRANCH"
 [[ -n "$WORKTREE_PATH" ]] && echo "worktree path:  $WORKTREE_PATH"
+[[ -n "$STATUS_BLOCKED" ]] && printf 'unstaged or untracked:\n%s\n' "$STATUS_BLOCKED"
 exit 0
 

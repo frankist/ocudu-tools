@@ -25,4 +25,22 @@ See `layers/metrics.md` — the `PHY metrics:` line contains the key fields:
 
 ## Accumulated knowledge
 
-*Append entries here after analysis sessions: date, what was found, why it matters.*
+### DTX vs channel degradation (2026-05-14)
+
+`sinr=infdB iter=6.0 ack=2` on a PUSCH entry = **DTX**: the UE transmitted nothing at that slot.
+The gNB ran the LDPC decoder on pure noise, hit the maximum iteration count, and declared KO. This
+is NOT a channel quality issue — do not look at RF conditions when you see this pattern.
+
+**Distinguishing DTX from degradation**:
+
+| Symptom | DTX (UE silence) | Degradation (bad channel) |
+|---|---|---|
+| SINR | `infdB` on all KO entries | Declining dB values (e.g. −10 → −25 → −38) |
+| Onset | Sudden — all h_ids fail simultaneously at one slot boundary | Gradual — failures spread across retransmissions |
+| `iter` count | Maxed out (e.g. 6.0) | Climbing from nominal toward max |
+
+**When DTX is confirmed**:
+1. Note the timestamp of the first KO slot (e.g. `[72.17]`).
+2. Note the timestamp of the last `crc=OK` PUSCH (grep backwards from the KO window).
+3. Take both timestamps to the Amarisoft `ue.log` — grep for PDCCH entries in the ~500 ms window
+   around the silence onset. See `layers/rrc.md` § Amarisoft ZMQ spurious DCI for what to look for.

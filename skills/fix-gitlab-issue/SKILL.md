@@ -7,7 +7,7 @@ description: >
   followed by or combined with a GitLab URL or issue number.
 version: 1.0.0
 user-invocable: true
-context: fork
+allowed-tools: Bash(${CLAUDE_SKILL_DIR}/scripts/get_context.sh:*), Bash(${CLAUDE_SKILL_DIR}/scripts/create_mr.sh:*)
 ---
 
 # fix-gitlab-issue
@@ -16,61 +16,32 @@ Investigate a GitLab issue and produce a report with the root cause and suggeste
 
 If the user accepts the report, proceed with the proposed fix, commit and PR.
 
+## Context
+
+!`${CLAUDE_SKILL_DIR}/scripts/get_context.sh $ARGUMENTS`
+
 ## Phase 0 — Prerequisites
 
-**Check token.** Run:
-```bash
-echo "${GITLAB_AI_TOKEN:-MISSING}"
-```
-If the output is `MISSING`, stop immediately and tell the user:
-> `GITLAB_AI_TOKEN` is not set. Add the following to your shell profile (`~/.zshrc` or `~/.bashrc`):
-> ```
-> export GITLAB_AI_TOKEN=<your-personal-access-token>
-> ```
-> Create a token at https://gitlab.com/-/user_settings/personal_access_tokens with `api` scope.
+If the context script failed, stop — the error message already tells the user what to fix.
 
-**Parse the URL.** From the user-provided URL (e.g. `https://gitlab.com/ocudu/ocudu/-/issues/1234`), extract:
-- `GITLAB_HOST` — e.g. `gitlab.com`
-- `GITLAB_BASE` — e.g. `https://gitlab.com`
-- `PROJECT_PATH` — e.g. `ocudu/ocudu`
-- `ISSUE_IID` — the numeric issue ID (e.g. `1234`)
-
-Compute the URL-encoded project path used in all GitLab API calls:
-```bash
-ENC=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1],safe=''))" "$PROJECT_PATH")
-```
-
-**Detect the current repo's remote** (for context only — the issue project may differ):
-```bash
-git remote get-url origin 2>/dev/null || echo "(no remote)"
-```
-
-Find the `SKILL_DIR` (the directory containing this SKILL.md) so scripts can be invoked with absolute paths.
+From the context output, assign:
+- `GITLAB_HOST` — from `gitlab host:`
+- `PROJECT_PATH` — from `project path:`
+- `ISSUE_IID` — from `issue iid:`
 
 ## Phase 1 — Read Issue
 
-Run:
-```bash
-bash "$SKILL_DIR/scripts/fetch_issue.sh" "$GITLAB_BASE" "$PROJECT_PATH" "$ISSUE_IID"
-```
-
-The script returns `{"issue":{...},"notes":[...]}`. Parse it to extract:
-- `title` — from `.issue.title`
-- `description` — from `.issue.description` (full text)
-- `labels[]` — from `.issue.labels[].name`
-- `milestone.title` — from `.issue.milestone.title` (if set)
-- `assignees[].username` — from `.issue.assignees[].username`
-- `notes[]` — from `.notes[]`, each comment's `body` and `author.username`, ascending by `created_at`
-
-Display a compact summary to the user:
+The context output contains the parsed issue fields. Display a compact summary to the user:
 ```
 Issue #<IID>: <title>
 Labels: <labels>  |  Milestone: <milestone>
 <first 200 chars of description>...
-Comments: <N> (<commenter names>)
+Comments: <N> (<commenter usernames>)
 ```
 
 ## Phase 2 — Feasibility Assessment
+
+Read both the issue description and **comments**. Both can contain important information about the setup, actual diagnosis, a narrowed-down root cause, or additional log evidence.
 
 Assess the issue:
 
@@ -87,18 +58,15 @@ If the issue is clearly **not actionable** (e.g. pure environment issue, require
 
 If local reproduction is not possible but a code-level fix is still feasible (e.g. logic bug visible from reading the code), note this and proceed — marking reproduction as "skipped (requires external setup)".
 
-## Phase 3 — Code Investigation (read-only, main repo)
+## Phase 3 — Code Investigation (read-only — no edits until Phase 6)
 
-Search and read code directly in the current repo checkout.
+**Analyze logs.** If `analyze-ocudu-log` is available, check the issue and all its comments for log data:
+- Inline OCUDU log output → invoke `analyze-ocudu-log` on it.
+- CI job URL (e.g. `https://gitlab.com/<project>/-/jobs/<id>`) → invoke `analyze-ocudu-log` on it directly.
 
-Use the issue's stack traces, error strings, component names, and function names to locate relevant code.
+Tell the skill the reported symptom, affected component, and relevant error strings from the issue.
 
-Read the relevant source files to:
-- Identify the likely root cause at the code level (specific file:line).
-- Understand the surrounding logic well enough to propose a concrete fix approach.
-- Determine which files will need to change and roughly what the change entails.
-
-This phase is **read-only** — no edits, no builds, no git operations.
+**Read code** in the current repo checkout, guided by log findings and the issue's stack traces, error strings, and component names. Identify the root cause (specific file:line), understand the fix scope, and list files that will change.
 
 ## Phase 4 — Report Analysis & Ask User
 
@@ -117,18 +85,13 @@ Report the analysis findings to the user:
 <high | medium | low> — <one sentence rationale>
 ```
 
-Then use the `AskUserQuestion` tool to ask:
+If the root cause is unclear, do **not** speculate — report what's missing and ask the user for it via `AskUserQuestion` (e.g. a specific log, reproduction step, or configuration). Incorporate the answer, update the analysis, and re-ask.
 
-> "Root cause analysis complete. Do you want to see a proposed fix?"
+Otherwise ask via `AskUserQuestion`: "Root cause analysis complete. Do you want to see a proposed fix?"
 
-Options:
-- **Yes, propose a fix** — continue to Phase 5
-- **Correct the analysis** — incorporate the user's feedback, revise the analysis, and re-ask this question
-- **No / Abort** — stop here, no git operations
-
-If the user selects **Correct the analysis**, apply their feedback, update the analysis report in place, and loop back to this question. If the user selects **No / Abort**, stop.
-
-This phase is **read-only** — no edits, no builds, no git operations.
+- **Yes, propose a fix** → Phase 5
+- **Correct the analysis** → revise and re-ask
+- **No / Abort** → stop
 
 ## Phase 5 — Propose Fix & Ask User
 
@@ -150,18 +113,11 @@ Present the fix plan:
 <Will try to reproduce via: <test name/approach> — OR — will skip because <reason>>
 ```
 
-Then use the `AskUserQuestion` tool to ask:
+Ask via `AskUserQuestion`: "Do you want to proceed with this fix?"
 
-> "Do you want to proceed with this fix?"
-
-Options:
-- **Proceed** — create the worktree and implement the fix
-- **Revise the fix plan** — incorporate the user's feedback, revise the plan, and re-ask this question
-- **Abort** — stop here, no git operations
-
-If the user selects **Revise the fix plan**, apply their feedback, update the plan in place, and loop back to this question. If the user selects **Abort**, stop. Only continue to Phase 6 if the user explicitly approves.
-
-This phase is **read-only** — no edits, no builds, no git operations.
+- **Proceed** → Phase 6
+- **Revise the fix plan** → revise and re-ask
+- **Abort** → stop
 
 ## Phase 6 — Create Worktree
 
@@ -291,16 +247,9 @@ Write the report file at `$WORKTREE_PATH/ISSUE_FIX_REPORT.md`. Do not stage or c
 
   Fixes #<IID>
 
-**Issue comment (if root cause differs from the original issue description):**
-If your root cause analysis adds material information beyond what the issue already states —
-new specific details, a regression commit, a misidentified cause — post a comment via:
-  curl -sf -X POST \
-    -H "PRIVATE-TOKEN: $GITLAB_AI_TOKEN" \
-    -H "Content-Type: application/json" \
-    -d "$(jq -n --arg b "<comment>" '{body: $b}')" \
-    "$GITLAB_BASE/api/v4/projects/$ENC/issues/$ISSUE_IID/notes"
-Keep the comment factual and brief. Reference the MR with !<MR_IID>. Skip if the issue
-already correctly and fully describes the root cause.
+**Issue comment** — if the analysis adds material information not in the original issue (regression commit, misidentified cause, new specific details), post a brief comment:
+  glab issue note create "$ISSUE_IID" --message "<comment>" --repo "$GITLAB_HOST/$PROJECT_PATH"
+Reference the MR with `!<MR_IID>`.
 ```
 
 Show the full report inline to the user and **stop**. Wait for the user to explicitly approve before doing anything with git.
@@ -336,8 +285,8 @@ EOF
 <MR description>
 EOF
 )"
-   bash "$SKILL_DIR/scripts/create_mr.sh" \
-     "$GITLAB_BASE" "$PROJECT_PATH" \
+   bash "$CLAUDE_SKILL_DIR/scripts/create_mr.sh" \
+     "$WORKTREE_PATH" \
      "fix/issue-<IID>-<slug>" "$BASE_BRANCH" \
      "$MR_TITLE" "$MR_DESC"
    ```
@@ -350,7 +299,7 @@ EOF
 
 ## Error handling
 
-- `curl` returns empty or HTTP 4xx → print the raw response and stop with a clear error.
+- `glab` command fails → print the raw output and stop with a clear error.
 - Build fails repeatedly → document errors, stop, include them in the report.
 - Tests fail after fix → include failure output in the report; do not create MR until user decides.
 - Worktree path already exists → handled inline in Phase 6 (reuse or pick a different suffix).

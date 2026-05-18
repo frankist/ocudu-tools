@@ -47,9 +47,14 @@ There is one artifact archive per job (not per test):
 ```bash
 curl -fsSL "https://gitlab.com/<group>/<project>/-/jobs/<job_id>/artifacts/download" \
   -o /tmp/job_artifacts.zip
-unzip -d /tmp/run_artifacts /tmp/job_artifacts.zip
+python3 -m zipfile -e /tmp/job_artifacts.zip /tmp/run_artifacts/
 find /tmp/run_artifacts -maxdepth 3 | sort
 ```
+
+> **Note**: use `python3 -m zipfile` rather than `unzip`. The `unzip` CLI interprets `[...]` in
+> paths as shell glob patterns and silently skips entries whose names contain brackets — a common
+> occurrence with pytest parameterized test names such as
+> `test_gnb[band:41-scs:30-bandwidth:50-udp-uplink]`.
 
 Artifacts are typically organised in per-test subdirectories: `e2e/<test_name>/gnb.log`, `e2e/<test_name>/ue.pcap`, etc. Inspect the structure returned by `find` to confirm before navigating into a subdirectory.
 
