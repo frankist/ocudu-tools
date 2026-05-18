@@ -105,7 +105,7 @@ Present this summary to the user, then continue with **Analysis options**.
 
 ## Analysis options
 
-After presenting the run summary, offer a numbered menu of analysis options tailored to what was found. If the user already stated their goal upfront (e.g. "analyse why this failed"), skip the menu and go directly to deep analysis.
+After presenting the run summary, offer a numbered menu of analysis options tailored to what was found. If the user already stated their goal upfront (e.g. "analyse why this failed"), skip the full menu — but still state in one sentence what you understood the goal to be and which layer or procedure file you plan to start from, and ask for confirmation before proceeding.
 
 **Always include:**
 - If the run came from a failed CI job or unit test: **"Investigate why the job/test failed"**
@@ -123,7 +123,7 @@ After presenting the run summary, offer a numbered menu of analysis options tail
 | PRACH/random access events | Investigate random access failures — load `references/procedures/random-access.md` |
 | OFH anomalies (`nof_skipped_symbols > 0`, `nof_missed_prach_occasions > 0`, `tx_kpis` non-zero) | Investigate OFH/fronthaul timing issues |
 
-Wait for the user's reply before proceeding. Once they select an option, perform the deep analysis following the steps in `references/analysis-guide.md`.
+Wait for the user's reply before proceeding. Once they select an option (or confirm the stated-goal interpretation), before starting deep analysis state which layer or procedure file you will investigate first and why, and ask the user to confirm or redirect.
 
 **Efficiency rules — apply throughout all analysis steps:**
 - Never read a log file whole. Use targeted `grep` and `sed` line ranges.

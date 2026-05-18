@@ -45,6 +45,8 @@ This avoids partial reads that miss structured sub-lines.
 
 For failures centred on a specific NR procedure, load the procedure file and follow it — it covers all the relevant layers in one place. For other failures, load the individual layer file(s) implicated by steps 2–3.
 
+**Cross-layer discipline:** Start with the single most-implicated layer. When findings in that layer suggest looking at another layer, do not load it silently — first state the connection in one sentence ("X in layer A suggests Y in layer B because Z") and ask the user whether to follow that lead. Only load additional layers on confirmation. If the user says no, stop at the current layer's findings and move to Step 5.
+
 **Procedure files** (`references/procedures/`):
 
 | Failure type | Procedure file | Load when |
