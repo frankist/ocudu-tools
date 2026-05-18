@@ -58,6 +58,16 @@ If the issue is clearly **not actionable** (e.g. pure environment issue, require
 
 If local reproduction is not possible but a code-level fix is still feasible (e.g. logic bug visible from reading the code), note this and proceed — marking reproduction as "skipped (requires external setup)".
 
+Before proceeding to Phase 3, state the investigation entry point in one sentence:
+> "I plan to start from [specific function / error string / component tag] because [one-line reason from the issue text]."
+
+Then ask via `AskUserQuestion`: "Does this look like the right starting point?"
+
+- **Yes, go ahead** → Phase 3
+- **No, start from…** or **I can give you more context** → incorporate the user's direction and re-state the entry point before proceeding
+
+Do not begin any code search until the user confirms the entry point.
+
 ## Phase 3 — Code Investigation (read-only — no edits until Phase 6)
 
 **Analyze logs.** If `analyze-ocudu-log` is available, check the issue and all its comments for log data:
@@ -67,6 +77,12 @@ If local reproduction is not possible but a code-level fix is still feasible (e.
 Tell the skill the reported symptom, affected component, and relevant error strings from the issue.
 
 **Read code** in the current repo checkout, guided by log findings and the issue's stack traces, error strings, and component names. Identify the root cause (specific file:line), understand the fix scope, and list files that will change.
+
+**Search discipline:** Follow the confirmed entry point directly. After each read, decide: is the root cause now clear enough to report? If yes, move to Phase 4. If no, and you have not yet done 3 code reads, follow the single most-specific lead from what you just read. After 3 code reads without a confirmed root cause, **stop searching** — report what you found so far and ask:
+
+> "I've looked at [files examined] and haven't pinpointed the root cause yet. Current best guess: [hypothesis]. Does this match your understanding, or can you point me somewhere specific?"
+
+Incorporate the user's answer and resume — or move to Phase 4 if the user wants to proceed on the current hypothesis. Never cast a wider net silently.
 
 ## Phase 4 — Report Analysis & Ask User
 
