@@ -83,10 +83,6 @@ Common causes:
 - **Slot decision `t=` growing over time**: Scheduler taking longer per slot — may indicate O(n) scaling with UE count.
 - **Cluster of HARQ discards in a short slot range**: Sudden channel degradation or UE context release storm.
 
-## Two-step RACH classification
-
-With `nof_cb_preambles_per_ssb: N` configured, preambles 0–(N−1) are 4-step CB preambles; preambles ≥ N are 2-step (MsgA) preambles. A PRACH event with a non-zero `msgb-rnti` confirms the preamble was classified as 2-step.
-
 ## Accumulated knowledge
 
 *Append entries here after analysis sessions: date, what was found, why it matters.*
