@@ -68,6 +68,26 @@ Fall back to grep/sed only when no relevant script exists.
 
 Apply the same grep output discipline (Step 2) to all layer-level greps.
 
+#### When gnb.log shows a DTX pattern
+
+If PHY PUSCH KOs show `sinr=infdB` (UE transmitted nothing), cross-reference the Amarisoft
+`ue.log` to find what the UE decoded at the silence boundary:
+
+```bash
+# 1. Find the silence boundary — first KO slot and last OK slot — from gnb.log
+grep "PUSCH: rnti=0xXXXX" gnb.log | grep -E 'crc=(OK|KO)' | tail -20
+
+# 2. Grep ue.log for PDCCH entries around the failure window (adjust timestamps)
+grep "PDCCH" ue.log | grep -E "HH:MM:3[789]\."
+
+# 3. Automate both steps with the dedicated script:
+python3 references/scripts/ue_rlf_trace.py --gnb gnb.log --rnti 0xXXXX [--ue ue.log]
+```
+
+Look for: `PDCCH: ss_id=1 cce_index=0 al=4 dci=1_0` entries in `ue.log` at a slot where
+`gnb.log` sent `ss_id=2` for that UE. See `references/layers/rrc.md` § Amarisoft ZMQ spurious DCI
+for the full interpretation and confirmation checklist.
+
 ---
 
 ## Step 5 — Diagnosis and recommendations

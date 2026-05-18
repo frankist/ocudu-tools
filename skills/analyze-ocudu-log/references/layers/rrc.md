@@ -58,4 +58,19 @@ grep -iE 'Handover|CHO winner|Reestablishment|RLF' <logfile>
 
 ## Accumulated knowledge
 
-*Append entries here after analysis sessions: date, what was found, why it matters.*
+### "MAC max KOs reached" RLF — investigation path (2026-05-14)
+
+Log pattern (comes from `DU-MNG`, not `RRC`):
+```
+[DU-MNG] [W] ue=N rnti=0xXXXX: RLF detected with cause "MAC max KOs reached". Timer of 4000 msec to release UE started...
+```
+
+This means the gNB exhausted the DL or UL HARQ retry budget. Despite the "MAC" label, the root cause is
+almost always at PHY — start there, not at RRC or MAC:
+
+1. Grep `gnb.log` for `PUSCH: rnti=0xXXXX` of `PDSCH: rnti=xXXXX` covering the ~2 s before the RLF timestamp.
+2. Check SINR on the KO entries:
+   - `sinr=infdB` → **DTX** → follow the DTX path in `layers/phy.md`.
+   - SINR < −10 dB → **degradation** → check RF/link conditions and LDPC iteration counts.
+3. Use `references/scripts/ue_rlf_trace.py` to automate this triage (see script usage).
+
