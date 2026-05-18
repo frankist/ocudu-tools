@@ -57,11 +57,11 @@ Or browse via `/plugin > Discover`.
 
 ### Option B — Clone and symlink (recommended if you want to edit skills)
 
-Clone the repo and symlink it into Claude Code's skills directory so your changes are picked up immediately and you can source-control them:
+Clone the repo and symlink each individual skill into Claude Code's skills directory so your changes are picked up immediately and you can source-control them:
 
 ```bash
-git clone https://github.com/frankist/ocudu-tools ~/ocudu-tools
-ln -s ~/ocudu-tools ~/.claude/skills/ocudu-tools
+git clone https://github.com/frankist/ocudu-tools
+ln -s ./ocudu-tools/<your_skill_of_choice> <path_to_project_or_home>/.claude/skills
 ```
 
 With this setup you can branch, edit layer reference files or skill instructions, and commit your findings — then open a PR to share them back.
