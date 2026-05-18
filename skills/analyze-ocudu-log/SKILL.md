@@ -120,7 +120,7 @@ After presenting the run summary, offer a numbered menu of analysis options tail
 | RLF events detected | Investigate radio link failure |
 | Handover scenario identified | Trace the handover procedure |
 | Zero or low throughput with UEs attached | Investigate zero/low throughput |
-| PRACH/random access events | Investigate random access failures |
+| PRACH/random access events | Investigate random access failures — load `references/procedures/random-access.md` |
 | OFH anomalies (`nof_skipped_symbols > 0`, `nof_missed_prach_occasions > 0`, `tx_kpis` non-zero) | Investigate OFH/fronthaul timing issues |
 
 Wait for the user's reply before proceeding. Once they select an option, perform the deep analysis following the steps in `references/analysis-guide.md`.
@@ -137,7 +137,11 @@ If a log line or protocol event's meaning is unclear and not covered by the laye
 
 ## Memory
 
-After each analysis, append new generalisable findings to the **Accumulated knowledge** section of the relevant `references/layers/*.md` file. Save **log structure insights only**: newly seen log patterns, what a sequence of lines indicates, how to distinguish two superficially similar conditions, or what a field value means. Do **not** save bug descriptions, root causes, implementation details, fix summaries, or numerical observations from a specific run.
+After each analysis, append new generalisable findings to the **Accumulated knowledge** section of the relevant reference file:
+- `references/layers/*.md` — for layer-specific patterns (scheduling, PHY metrics, RRC events, etc.)
+- `references/procedures/*.md` — for procedure-specific patterns that span multiple layers (RA, handover, etc.)
+
+Save **log structure insights only**: newly seen log patterns, what a sequence of lines indicates, how to distinguish two superficially similar conditions, or what a field value means. Do **not** save bug descriptions, root causes, implementation details, fix summaries, or numerical observations from a specific run.
 
 Parsing scripts are also part of accumulated knowledge. When parsing would otherwise require multiple grep passes or produce too many raw lines for efficient analysis, write a Python script and save it to `references/scripts/`. Scripts must:
 - Import shared helpers from `references/scripts/utils.py` (timestamp parsing) rather than duplicating them

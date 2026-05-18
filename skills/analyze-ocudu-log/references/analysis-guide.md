@@ -41,11 +41,19 @@ This avoids partial reads that miss structured sub-lines.
 
 ---
 
-## Step 4 — Deep-dive by layer
+## Step 4 — Deep-dive by layer or procedure
 
-Load the layer file(s) for each component implicated by steps 2–3. Files are in `references/layers/`. Read only the sections relevant to the observed symptom — avoid loading the full file when only one section is needed.
+For failures centred on a specific NR procedure, load the procedure file and follow it — it covers all the relevant layers in one place. For other failures, load the individual layer file(s) implicated by steps 2–3.
 
-Before grepping manually, check whether a parsing script in `references/scripts/` covers the layer. If it does, run it — its output replaces multiple grep passes:
+**Procedure files** (`references/procedures/`):
+
+| Failure type | Procedure file | Load when |
+|---|---|---|
+| PRACH not detected, UE stuck before RRC Setup, Msg3 failures, RAPID mismatch | `procedures/random-access.md` | Any RA or PRACH failure |
+
+**Layer files** (`references/layers/`):
+
+Read only the sections relevant to the observed symptom. Before grepping manually, check whether a parsing script in `references/scripts/` covers the layer:
 ```bash
 cat <logfile> | python3 references/scripts/proc_durations.py --layer <LAYER> [--proc <proc>]
 python3 references/scripts/grep_multiline.py <logfile> [grep-options] '<pattern>'
@@ -54,11 +62,11 @@ Fall back to grep/sed only when no relevant script exists.
 
 | Component tag(s) | Layer file | When to load |
 |---|---|---|
-| `SCHED` | `layers/sched.md` | `msg3_nok > 0`, RACH issues, HARQ failures, allocation failures, zero throughput |
+| `SCHED` | `layers/sched.md` | HARQ failures, allocation failures, zero throughput, slot decision timing |
 | `MAC` | `layers/mac.md` | Cell lifecycle issues, pipeline timing anomalies |
 | `DU-MNG` | `layers/du_mng.md` | UE lifecycle procedure latency, cycling scenarios, stuck cycling diagnosis |
-| `PHY`, `DU-LOW` | `layers/phy.md` | PHY latency spikes, high LDPC iterations |
-| `RRC` | `layers/rrc.md` | UE stuck after RACH, connection drops, RLF |
+| `PHY`, `DU-LOW` | `layers/phy.md` | PHY latency spikes, high LDPC iterations, DTX vs degradation |
+| `RRC` | `layers/rrc.md` | Connection drops, RLF, handover, UE stuck after RACH completes |
 | `F1AP` | `layers/f1ap.md` | CU–DU interface failures, UE context errors |
 | `NGAP` | `layers/ngap.md` | Core network rejections, PDU session failures |
 | `E1AP` | `layers/e1ap.md` | User-plane bearer failures, zero throughput with UE connected |
