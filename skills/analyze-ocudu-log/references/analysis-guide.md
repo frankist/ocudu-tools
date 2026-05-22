@@ -56,6 +56,7 @@ Start with the single most-implicated layer. Cross-layer leads always count as m
 | Failure type | Procedure file | Load when |
 |---|---|---|
 | PRACH not detected, UE stuck before RRC Setup, Msg3 failures, RAPID mismatch | `procedures/random-access.md` | Any RA or PRACH failure |
+| HO timeout, CFRA preamble miss, re-establishment after HO, `"Intra CU Handover Target Routine" failed`, inter-DU or inter-CU HO failure, `HandoverRequired` in NGAP | `procedures/handover.md` | Any handover failure |
 
 **Layer files** (`references/layers/`):
 
@@ -81,6 +82,8 @@ Fall back to grep/sed only when no relevant script exists.
 | `RLC`, `PDCP`, `SDAP` | *(no layer files — search source)* | User-plane data path above MAC |
 
 Apply the same grep output discipline (Step 2) to all layer-level greps.
+
+When cross-referencing a UE across CU, DU, F1AP, NGAP, E1AP, and Amarisoft log lines, load **`references/ue-ids.md`** — it maps every identifier type (C-RNTI, DU-local ue, cu_ue, du_ue, ran_ue, cu_cp_ue, Amarisoft UEID, …) and explains which survive handover and re-establishment.
 
 ---
 
