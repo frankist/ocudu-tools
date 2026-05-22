@@ -3,9 +3,11 @@
 Extract UE ID mappings from F1AP, NGAP, or E1AP pcap files.
 
 Runs tshark on the given pcap and tracks how UE identifiers map to each other,
-printing one line per mapping update:
+printing one line per mapping update or release:
 
-    <frame>, <message>, <id1>=<val1>, <id2>=<val2>, ...
+    <frame>, <timestamp>, <message>, <id1>=<val1>, <id2>=<val2>, ...
+
+Release lines are suffixed with [released].
 
 For F1AP: tracks du_ue, cu_ue, c_rnti (printed in hex).
 For NGAP: tracks ran_ue, amf_ue.
@@ -21,6 +23,7 @@ probing the first packets with tshark.
 import os
 import subprocess
 import sys
+from datetime import datetime, timezone
 
 # (label, tshark_field, output_as_hex)
 _ID_FIELDS = {
@@ -112,6 +115,10 @@ def _msg_name(info_col):
     return part.strip()
 
 
+def _format_ts(epoch_str):
+    return datetime.fromtimestamp(float(epoch_str), tz=timezone.utc).strftime('%H:%M:%S.%f')[:-3]
+
+
 def _find_record(records, packet_ids):
     """Return the first active record that shares at least one ID with packet_ids."""
     for rec in records:
@@ -133,19 +140,20 @@ def main():
     new_ue_msgs = _NEW_UE_MSGS.get(proto, set())
     release_msgs = _RELEASE_MSGS.get(proto, set())
 
-    tshark_fields = ['frame.number', '_ws.col.Info'] + [f[1] for f in fields_cfg]
+    tshark_fields = ['frame.number', 'frame.time_epoch', '_ws.col.Info'] + [f[1] for f in fields_cfg]
     lines = _run_tshark(pcap, tshark_fields)
 
     active = []  # list of dicts: {label: value}
 
     for line in lines:
         cols = line.split('\t')
-        if len(cols) < 2 + len(fields_cfg):
+        if len(cols) < 3 + len(fields_cfg):
             continue
 
         frame_num = cols[0]
-        name = _msg_name(cols[1])
-        id_cols = cols[2:]
+        timestamp = _format_ts(cols[1])
+        name = _msg_name(cols[2])
+        id_cols = cols[3:]
 
         pkt_ids = {}
         # old_du_ue is ephemeral: shown on the line where it appears but not stored.
@@ -171,6 +179,8 @@ def main():
         if name in release_msgs:
             rec = _find_record(active, pkt_ids)
             if rec is not None:
+                parts = [f'{l}={rec[l]}' for l in labels if l in rec]
+                print(f'{frame_num}, {timestamp}, {name}, {", ".join(parts)} [released]')
                 active.remove(rec)
             continue
 
@@ -190,7 +200,7 @@ def main():
                 parts.append(f'{l}={rec[l]}')
                 if l == 'du_ue' and old_du_ue is not None:
                     parts.append(f'old_du_ue={old_du_ue}')
-            print(f'{frame_num}, {name}, {", ".join(parts)}')
+            print(f'{frame_num}, {timestamp}, {name}, {", ".join(parts)}')
 
 
 if __name__ == '__main__':
