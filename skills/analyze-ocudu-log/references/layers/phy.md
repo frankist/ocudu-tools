@@ -40,7 +40,13 @@ is NOT a channel quality issue — do not look at RF conditions when you see thi
 | `iter` count | Maxed out (e.g. 6.0) | Climbing from nominal toward max |
 
 **When DTX is confirmed**:
-1. Note the timestamp of the first KO slot (e.g. `[72.17]`).
-2. Note the timestamp of the last `crc=OK` PUSCH (grep backwards from the KO window).
-3. Take both timestamps to the Amarisoft `ue.log` — grep for PDCCH entries in the ~500 ms window
-   around the silence onset. See `layers/rrc.md` § Amarisoft ZMQ spurious DCI for what to look for.
+1. Find the silence boundary — first KO slot and last OK slot:
+   ```bash
+   grep "PUSCH: rnti=0xXXXX" gnb.log | grep -E 'crc=(OK|KO)' | tail -20
+   ```
+2. Search `ue.log` for PDCCH entries around the failure window, or run the dedicated script:
+   ```bash
+   python3 references/scripts/ue_rlf_trace.py --gnb gnb.log --rnti 0xXXXX [--ue ue.log]
+   ```
+3. Look for `PDCCH: ss_id=1` entries in `ue.log` at slots where `gnb.log` sent `ss_id=2` for that UE.
+   See `layers/rrc.md` § Amarisoft ZMQ spurious DCI for the full interpretation and confirmation checklist.
