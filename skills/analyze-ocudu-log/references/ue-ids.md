@@ -261,6 +261,32 @@ grep -B1 "ue=M du_index.*Created new CU-CP UE" <gnb.log>
 # Returns: [CU-CP] ue=N: Trigger intra-CU (intra-DU) handover on du=0
 ```
 
+**Bulk extraction from pcap:**
+
+`references/scripts/map_ue_ids.py` extracts all UE ID mappings from a pcap and prints one line per mapping update:
+
+```bash
+python3 references/scripts/map_ue_ids.py f1ap.pcap   # du_ue ↔ cu_ue ↔ c_rnti
+python3 references/scripts/map_ue_ids.py ngap.pcap   # ran_ue ↔ amf_ue
+python3 references/scripts/map_ue_ids.py e1ap.pcap   # cu_cp_ue ↔ cu_up_ue
+```
+
+The protocol is auto-detected from the filename. Output format:
+```
+<frame>, <message>, <id>=<val>, ...
+```
+
+Example (F1AP, 10 UEs connecting then handing over):
+```
+3, InitialULRRCMessageTransfer, du_ue=0, c_rnti=0x4601
+4, DLRRCMessageTransfer, du_ue=0, cu_ue=0, c_rnti=0x4601
+...
+204, UEContextSetupRequest, cu_ue=10
+207, UEContextSetupResponse, du_ue=10, cu_ue=10, c_rnti=0x460b
+```
+
+For inter-DU HO, run on both DU pcaps separately: the source DU shows `UEContextRelease` at the end; the target DU shows `UEContextSetup` when UEs arrive.
+
 ---
 
 ## Stability across key procedures
