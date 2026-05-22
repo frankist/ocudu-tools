@@ -2,7 +2,27 @@
 
 ## Step 1 — Start from the Run summary
 
-The Run summary (SKILL.md § Run summary and `summary-guide.md`) already provides the overview: scenario, setup, errors/warnings, and basic metrics. Do not repeat those steps. Identify the failure events from what the summary found, then proceed to Step 2.
+Identify the failure events from the Run summary, then proceed to Step 2.
+
+---
+
+## Progress reporting (Steps 2–4)
+
+After each meaningful finding, report to the user and ask how to proceed:
+
+```
+**Found:** <one sentence — what the log shows, specific file/layer/timestamp>
+**Next:** <planned action and why>
+```
+
+Then ask via `AskUserQuestion` with options:
+- **Continue** — proceed as planned
+- **Skip to diagnosis** — stop collecting evidence; go to Step 5 with what you have
+- **Other** (open text) — redirect to a different area, add context, or ask a question
+
+A finding is meaningful when it: locates a specific failure event, supports or refutes the current hypothesis, or identifies a lead to a different layer or component. Do not report after every individual grep — only when the result changes what you know or what you plan to do next.
+
+**When to ask for clarification:** If evidence is ambiguous, do not speculate. First search the OCUDU source (if available) — the implementation often resolves ambiguous log patterns. If inconclusive, ask the user via `AskUserQuestion`. Typical triggers: multiple plausible root causes with no clear signal; an unfamiliar log pattern; missing context (what the test was supposed to do, what changed since the last passing run). If the answer is a generalisable log insight, save it to the relevant `references/layers/*.md` or `references/procedures/*.md` file.
 
 ---
 
@@ -17,27 +37,11 @@ For each failure, note its **timestamp and slot** precisely:
 grep -nE 'RLF|radio link failure|PRACH.*fail|msg3_nok=[^0]|Random Access' <logfile>
 ```
 
-**Grep output discipline** — apply this to every grep in this workflow:
-```bash
-grep -cE '<pattern>' <logfile>          # count first
-grep -m 30 -nE '<pattern>' <logfile>    # then cap output if count is large
-```
-Never pipe an unbounded grep result into context. Count first; sample with `-m N` if the count is large.
-
 ---
 
 ## Step 3 — Extract context around each failure
 
-**Window before the failure** (typically a few seconds of wall-clock time back): use the line number from `grep -n` to read a `sed` range:
-```bash
-sed -n '<start>,<end>p' <logfile>
-```
-
-**Full multiline log entry** at a specific point — use `grep_multiline.py` when an entry's continuation lines (key-value sub-lines) carry the relevant detail:
-```bash
-python3 references/scripts/grep_multiline.py <logfile> '<pattern>'
-```
-This avoids partial reads that miss structured sub-lines.
+Extract a window before the failure (typically a few seconds back) and the full multiline entry at the failure point when continuation lines carry relevant detail.
 
 ---
 
@@ -45,7 +49,7 @@ This avoids partial reads that miss structured sub-lines.
 
 For failures centred on a specific NR procedure, load the procedure file and follow it — it covers all the relevant layers in one place. For other failures, load the individual layer file(s) implicated by steps 2–3.
 
-**Cross-layer discipline:** Start with the single most-implicated layer. When findings in that layer suggest looking at another layer, do not load it silently — first state the connection in one sentence ("X in layer A suggests Y in layer B because Z") and ask the user whether to follow that lead. Only load additional layers on confirmation. If the user says no, stop at the current layer's findings and move to Step 5.
+Start with the single most-implicated layer. Cross-layer leads always count as meaningful findings — apply the progress reporting rule above before loading any additional layer.
 
 **Procedure files** (`references/procedures/`):
 
@@ -77,26 +81,6 @@ Fall back to grep/sed only when no relevant script exists.
 | `RLC`, `PDCP`, `SDAP` | *(no layer files — search source)* | User-plane data path above MAC |
 
 Apply the same grep output discipline (Step 2) to all layer-level greps.
-
-#### When gnb.log shows a DTX pattern
-
-If PHY PUSCH KOs show `sinr=infdB` (UE transmitted nothing), cross-reference the Amarisoft
-`ue.log` to find what the UE decoded at the silence boundary:
-
-```bash
-# 1. Find the silence boundary — first KO slot and last OK slot — from gnb.log
-grep "PUSCH: rnti=0xXXXX" gnb.log | grep -E 'crc=(OK|KO)' | tail -20
-
-# 2. Grep ue.log for PDCCH entries around the failure window (adjust timestamps)
-grep "PDCCH" ue.log | grep -E "HH:MM:3[789]\."
-
-# 3. Automate both steps with the dedicated script:
-python3 references/scripts/ue_rlf_trace.py --gnb gnb.log --rnti 0xXXXX [--ue ue.log]
-```
-
-Look for: `PDCCH: ss_id=1 cce_index=0 al=4 dci=1_0` entries in `ue.log` at a slot where
-`gnb.log` sent `ss_id=2` for that UE. See `references/layers/rrc.md` § Amarisoft ZMQ spurious DCI
-for the full interpretation and confirmation checklist.
 
 ---
 

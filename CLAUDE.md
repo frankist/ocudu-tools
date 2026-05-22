@@ -31,6 +31,8 @@ skills/
       fetch_job_log.sh         # Download job trace to a local file
   synthesize-skill-update/
     SKILL.md           # Skill for synthesizing user-branch changes into main
+  manage-worktree/
+    SKILL.md           # Skill for creating/removing worktrees with ccache sharing
 ```
 
 ## Skills
@@ -52,6 +54,15 @@ Scripts under `scripts/` wrap the GitLab API calls. `GITLAB_AI_TOKEN` env var mu
 Triggered when the user provides a GitLab MR URL and asks to investigate or fix a failing CI pipeline. Fetches the MR, identifies the latest (or a chosen earlier) pipeline, lists failed jobs, lets the user pick one, downloads and analyses the job log, then—for fixable failures (compilation, test, linting, format)—creates a git worktree on the MR's source branch, applies a fix, validates it with targeted ninja/ctest, and proposes a commit back to the same branch.
 
 Scripts under `scripts/` wrap the GitLab API calls. `GITLAB_AI_TOKEN` env var must be set (api-scoped personal access token).
+
+### manage-worktree
+
+Triggered when the user asks to create or remove a git worktree. Creates the worktree under
+`<repo_parent>/worktrees/<repo_name>-<branch>`, places the build directory inside it, and configures
+cmake with `CCACHE_BASEDIR` and `-fdebug-prefix-map` so that ccache hits are shared across all
+worktrees of the same project. Worktrees are placed under `<repo_parent>/<repo_name>-worktrees/`.
+Also writes a `build.sh` wrapper that sets `CCACHE_BASEDIR` automatically. Handles removal with
+unsaved-work checks.
 
 ### synthesize-skill-update
 
