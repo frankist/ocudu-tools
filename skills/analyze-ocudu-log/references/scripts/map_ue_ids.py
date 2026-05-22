@@ -93,6 +93,14 @@ def _parse_val(raw, as_hex):
     return first
 
 
+def _parse_all_vals(raw, as_hex):
+    """Return all values from a (possibly comma-separated) tshark field."""
+    parts = [v.strip() for v in raw.split(',') if v.strip()]
+    if as_hex:
+        return [hex(int(v)) for v in parts]
+    return parts
+
+
 def _msg_name(info_col):
     """Extract the protocol message name from the tshark Info column."""
     # Info column format: "MessageName, optional details [optional bracketed suffix]"
@@ -140,11 +148,22 @@ def main():
         id_cols = cols[2:]
 
         pkt_ids = {}
+        # old_du_ue is ephemeral: shown on the line where it appears but not stored.
+        # It comes from id-oldgNB-DU-UE-F1AP-ID (IE 47), which tshark returns as the
+        # second comma-separated value of f1ap.GNB_DU_UE_F1AP_ID when present.
+        old_du_ue = None
         for i, (label, _, as_hex) in enumerate(fields_cfg):
             raw = id_cols[i] if i < len(id_cols) else ''
-            val = _parse_val(raw, as_hex)
-            if val is not None:
-                pkt_ids[label] = val
+            if label == 'du_ue':
+                vals = _parse_all_vals(raw, as_hex)
+                if vals:
+                    pkt_ids['du_ue'] = vals[0]
+                if len(vals) >= 2:
+                    old_du_ue = vals[1]
+            else:
+                val = _parse_val(raw, as_hex)
+                if val is not None:
+                    pkt_ids[label] = val
 
         if not pkt_ids:
             continue
@@ -164,8 +183,14 @@ def main():
         rec.update(pkt_ids)
 
         if updated:
-            id_str = ', '.join(f'{l}={rec[l]}' for l in labels if l in rec)
-            print(f'{frame_num}, {name}, {id_str}')
+            parts = []
+            for l in labels:
+                if l not in rec:
+                    continue
+                parts.append(f'{l}={rec[l]}')
+                if l == 'du_ue' and old_du_ue is not None:
+                    parts.append(f'old_du_ue={old_du_ue}')
+            print(f'{frame_num}, {name}, {", ".join(parts)}')
 
 
 if __name__ == '__main__':
