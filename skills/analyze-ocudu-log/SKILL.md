@@ -115,15 +115,14 @@ Always generate this before any deep analysis — do not read any log in full. F
 
 ## Analysis direction
 
-After presenting the run summary, agree with the user on what to investigate next.
+After presenting the run summary — and after completing **every analysis step** — use `AskUserQuestion` to offer options and wait for the user's choice. **Never exit the skill on your own; the user decides when the session is done.**
 
 ### Menu
 
-Offer a numbered menu of analysis options tailored to what was found in the summary.
-
-**Always include:**
+Use `AskUserQuestion` with 2–4 options tailored to what was just found. Always include:
+- Options derived from the current findings (e.g. "Dig deeper into X", "Investigate Y next")
 - If the run came from a failed CI job or unit test: **"Investigate why the job/test failed"**
-- **"Other — describe what you'd like to investigate"** (always last)
+- **"Other — describe what you'd like to investigate"** (always last, free-text)
 
 **Add based on summary findings:**
 
@@ -137,15 +136,15 @@ Offer a numbered menu of analysis options tailored to what was found in the summ
 | PRACH/random access events | Investigate random access failures — load `references/procedures/random-access.md` |
 | OFH anomalies (`nof_skipped_symbols > 0`, `nof_missed_prach_occasions > 0`, `tx_kpis` non-zero) | Investigate OFH/fronthaul timing issues |
 
-Wait for the user's reply before proceeding.
+After performing any deep analysis, call `AskUserQuestion` again with options reflecting what was just found — including "Done, exit the skill" as one choice. Do not exit unless that option is selected.
 
 ### When the goal is stated upfront
 
-If the user already stated their goal, skip the menu — confirm your interpretation in one sentence before proceeding.
+If the user already stated their goal, skip the initial menu — confirm your interpretation in one sentence, then proceed. After completing that analysis, call `AskUserQuestion` as above.
 
 ### Check-in before deep analysis
 
-Before starting deep analysis, state the observed issue you will focus on and which layer or procedure file you plan to start from, then ask the user to confirm. Do not begin until confirmed. During analysis, follow the **Progress reporting** rule in `references/analysis-guide.md`.
+Before starting deep analysis, state the observed issue you will focus on and which layer or procedure file you plan to start from, then ask the user to confirm via `AskUserQuestion`. Do not begin until confirmed. During analysis, follow the **Progress reporting** rule in `references/analysis-guide.md`.
 
 ---
 
