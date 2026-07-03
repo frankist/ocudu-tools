@@ -27,11 +27,13 @@ fi
 
 CURRENT_BRANCH=$("${GIT[@]}" branch --show-current)
 MAIN_BRANCH=$("${GIT[@]}" symbolic-ref refs/remotes/origin/HEAD | sed 's@refs/remotes/origin/@@')
-STATUS_BLOCKED=$("${GIT[@]}" status --porcelain | grep -E '^(\?\?|.[MDRC])' || true)
+# Porcelain XY codes: X = index (staged) state, Y = worktree (unstaged) state, '??' = untracked.
+# List every changed entry so staged-only files (e.g. "M ") are surfaced too, not just unstaged/untracked ones.
+CHANGES=$("${GIT[@]}" status --porcelain || true)
 
 echo "current branch: $CURRENT_BRANCH"
 echo "main branch:    $MAIN_BRANCH"
 [[ -n "$WORKTREE_PATH" ]] && echo "worktree path:  $WORKTREE_PATH"
-[[ -n "$STATUS_BLOCKED" ]] && printf 'unstaged or untracked:\n%s\n' "$STATUS_BLOCKED"
+[[ -n "$CHANGES" ]] && printf 'changes (porcelain XY; X=staged, Y=unstaged, ??=untracked):\n%s\n' "$CHANGES"
 exit 0
 
