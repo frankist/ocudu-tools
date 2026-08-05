@@ -22,6 +22,15 @@ Levels (each includes the previous one's behavior):
     target file's own body is dropped as a misattributed/spurious
     suggestion (see "Why dead forward-declares happen" below).
 
+    An enum or template class/struct forward-declare added here is not the
+    final answer: this script still emits one (same as any other
+    forward-declare candidate), but process_header.py's
+    remove_fragile_forward_declares() runs right after fix_include applies
+    these edits and resolves it back to the real header in every file, .h or
+    .cpp alike - see that function's docstring in targeted_repair.py for why
+    neither is ever left forward-declared. A plain, non-template class/struct
+    forward-declare is unaffected.
+
   targeted
     Same filtering as forward-declare for a HEADER target - this script
     cannot tell which additions are genuinely needed, only a compiler can,
@@ -130,6 +139,42 @@ _FWD_DECL_ENUM_RE = re.compile(r"\benum(?:\s+(?:class|struct))?\s+([A-Za-z_][\w:
 # wrapping - the underlying #include must be kept instead.
 _NESTED_CLASS_FWD_DECL_RE = re.compile(r"\b(?:class|struct)\s+[A-Za-z_]\w*::[\w:]*\s*;")
 _CPP_SUFFIXES = (".cpp", ".cc")
+
+# IWYU sometimes suggests a C standard-library header even in a C++ TU (e.g.
+# <stdint.h> for uint8_t, <math.h> for M_PI) where this codebase's own
+# convention is the C++ wrapper form - verified by grep: <cstdint> outnumbers
+# <stdint.h> 66:2 project-wide, and both <stdint.h> hits trace back to a
+# prior run of this same tool. Canonicalize the common ones on the way out
+# rather than leave a style drive-by for the user to catch by hand.
+_C_HEADER_TO_CXX = {
+    "<stdint.h>": "<cstdint>",
+    "<stddef.h>": "<cstddef>",
+    "<string.h>": "<cstring>",
+    "<stdio.h>": "<cstdio>",
+    "<stdlib.h>": "<cstdlib>",
+    "<math.h>": "<cmath>",
+    "<assert.h>": "<cassert>",
+    "<ctype.h>": "<cctype>",
+    "<time.h>": "<ctime>",
+    "<limits.h>": "<climits>",
+    "<float.h>": "<cfloat>",
+    "<errno.h>": "<cerrno>",
+    "<signal.h>": "<csignal>",
+    "<wchar.h>": "<cwchar>",
+}
+
+
+def canonicalize_c_header_include(line):
+    """Rewrite a known C header #include to its C++ wrapper form
+    (<stdint.h> -> <cstdint>), leaving anything else - including the line's
+    own leading whitespace and any trailing comment - untouched."""
+    m = _INCLUDE_RE.search(line)
+    if not m:
+        return line
+    replacement = _C_HEADER_TO_CXX.get(m.group(1))
+    if not replacement:
+        return line
+    return line[:m.start(1)] + replacement + line[m.end(1):]
 
 
 def _forward_declare_symbol(line):
@@ -279,7 +324,7 @@ def filter_output(text, level):
                 # scope at every level below it - except a .cpp target, which always
                 # gets them: see "Why a .cpp target never gets a bare forward-declare".
                 if level == "explicit" or is_cpp:
-                    out.append(line)
+                    out.append(canonicalize_c_header_include(line))
                 continue
             if level == "remove":
                 continue  # remove-only level adds nothing, forward-declares included
@@ -289,7 +334,7 @@ def filter_output(text, level):
                 symbol = _forward_declare_symbol(line)
                 real_include = full_list_map.get(current_file, {}).get(symbol) if symbol else None
                 if real_include:
-                    out.append(real_include)
+                    out.append(canonicalize_c_header_include(real_include))
                     continue
                 # IWYU's full include-list didn't name a header for this symbol either -
                 # fall through to the forward-declare rather than silently drop it; a
