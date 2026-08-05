@@ -1,0 +1,10 @@
+# Python bytecode from the skills' helper scripts
+__pycache__/
+*.py[cod]
+
+# Per-user Claude Code settings, not shared plugin content
+.claude/settings.local.json
+
+# Editor/OS noise
+.DS_Store
+*.swp
