@@ -27,6 +27,14 @@ fi
 
 CURRENT_BRANCH=$("${GIT[@]}" branch --show-current)
 MAIN_BRANCH=$("${GIT[@]}" symbolic-ref refs/remotes/origin/HEAD | sed 's@refs/remotes/origin/@@')
+
+if [[ "$CURRENT_BRANCH" == "$MAIN_BRANCH" ]]; then
+  echo "Error: current branch is '$MAIN_BRANCH' — commits directly to main are not allowed." >&2
+  exit 1
+fi
+
+# Stage tracked-file changes up front so the caller only has to decide on untracked files.
+"${GIT[@]}" add -u
 # Porcelain XY codes: X = index (staged) state, Y = worktree (unstaged) state, '??' = untracked.
 # List every changed entry so staged-only files (e.g. "M ") are surfaced too, not just unstaged/untracked ones.
 CHANGES=$("${GIT[@]}" status --porcelain || true)
