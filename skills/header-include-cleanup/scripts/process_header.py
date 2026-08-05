@@ -69,6 +69,7 @@ import signal
 import subprocess
 import sys
 import time
+from collections import Counter
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, SCRIPT_DIR)
@@ -519,6 +520,38 @@ def files_unchanged_since_backup():
     return True
 
 
+_RELEVANT_LINE_RE = re.compile(
+    r"^\s*#\s*include\b|^\s*(?:class|struct|enum|union)\b.*[;{]\s*$|^\s*template\s*<")
+
+
+def actual_include_diff(pre_text, post_text):
+    """The #include and forward-declare/enum/class lines that genuinely
+    differ between a file's pre-run backup and its FINAL content - after
+    fix_include, remove_fragile_forward_declares, upgrade_cpp_forward_declares
+    and (at targeted level) the compile-verified repair loop have all had
+    their say.
+
+    This exists because `removed_lines`/`added_lines` are recorded from the
+    raw IWYU suggestion BEFORE any of that later fixup runs - accurate as a
+    statement of what was asked for, not of what actually ended up on disk.
+    Reviewing a batch's results file against the stale suggestion is what
+    made manually cross-checking nearly every "CHANGED" entry against `git
+    diff` necessary in practice; this makes the JSON itself trustworthy
+    on its own.
+
+    Line-based, not a real diff: a multi-line template forward-declare span
+    can show only one of its physical lines. Good enough as a review aid
+    while a full multi-line diff isn't worth the complexity here."""
+    def relevant_lines(text):
+        return [line.strip() for line in text.split("\n") if _RELEVANT_LINE_RE.match(line)]
+
+    pre_counts = Counter(relevant_lines(pre_text))
+    post_counts = Counter(relevant_lines(post_text))
+    removed = sorted((pre_counts - post_counts).elements())
+    added = sorted((post_counts - pre_counts).elements())
+    return removed, added
+
+
 def _install_abort_restore():
     def handler(signum, _frame):
         restore_backups()
@@ -666,10 +699,13 @@ def process(args):
     measured_tu, tu_dir = tu_for_command(entries, raw_cmd, args.repo) if measure else (None, args.repo)
     closure_before = preprocessed_line_count(raw_cmd, tu_dir, args.measure_timeout) if measure else None
 
+    # Taken unconditionally (not just at targeted level) so actual_include_diff
+    # below can report what really changed on disk, not just what was asked
+    # for - see its own docstring.
+    take_backups(files_to_modify)
     if targeted:
         # The validation recompile can only read the real files, so a targeted
         # dry-run edits them for real and restores them before returning.
-        take_backups(files_to_modify)
         _install_abort_restore()
 
     fix_args = [args.fix_include_bin, "--nosafe_headers", "--noreorder", "--nocomments"]
@@ -720,12 +756,16 @@ def process(args):
                                "validation_rounds": report["rounds"],
                                "stderr_tail": report["stderr_tail"][-1000:]}))
             return
+        de_fragiled = targeted_repair.remove_fragile_forward_declares(
+            cmd_list, args.repo, files_to_modify, raw, strip_comments_and_strings)
+        if de_fragiled:
+            result["fragile_forward_declares_removed"] = de_fragiled
         upgraded = targeted_repair.upgrade_cpp_forward_declares(
             cmd_list, args.repo, files_to_modify, raw, strip_comments_and_strings)
         if upgraded:
             result["cpp_forward_declares_upgraded"] = upgraded
         touched = sorted(set(re.findall(r">>> Fixing #includes in '([^']+)'", fix_proc.stdout))
-                         | set(report["additions"]) | set(upgraded))
+                         | set(report["additions"]) | set(upgraded) | set(de_fragiled))
         format_failures = format_files(touched, args.clang_format_bin, args.repo)
         if format_failures:
             result["clang_format_failures"] = format_failures
@@ -744,16 +784,51 @@ def process(args):
             restore_backups()
             result["dry_run"] = True
     elif not args.dry_run:
+        de_fragiled = targeted_repair.remove_fragile_forward_declares(
+            cmd_list, args.repo, files_to_modify, raw, strip_comments_and_strings)
+        if de_fragiled:
+            result["fragile_forward_declares_removed"] = de_fragiled
         upgraded = targeted_repair.upgrade_cpp_forward_declares(
             cmd_list, args.repo, files_to_modify, raw, strip_comments_and_strings)
         if upgraded:
             result["cpp_forward_declares_upgraded"] = upgraded
-        touched = sorted(set(re.findall(r">>> Fixing #includes in '([^']+)'", fix_proc.stdout)) | set(upgraded))
+        touched = sorted(set(re.findall(r">>> Fixing #includes in '([^']+)'", fix_proc.stdout))
+                         | set(upgraded) | set(de_fragiled))
         result["touched_files"] = touched
         format_failures = format_files(touched, args.clang_format_bin, args.repo)
         if format_failures:
             result["clang_format_failures"] = format_failures
         record_closure(result, args, raw_cmd, tu_dir, measured_tu, closure_before)
+
+    # A dry-run at any level restores (or, for the non-targeted case, never even
+    # writes) the file, so there is deliberately nothing "actual" to report there.
+    if header_path in _BACKUPS and not args.dry_run and result["status"] != "skipped":
+        try:
+            with open(header_path) as f:
+                current_text = f.read()
+        except OSError:
+            current_text = _BACKUPS[header_path]
+        actual_removed, actual_added = actual_include_diff(_BACKUPS[header_path], current_text)
+        if actual_removed:
+            result["actual_removed_lines"] = actual_removed
+        if actual_added:
+            result["actual_added_lines"] = actual_added
+        # `status` was set from the raw pre-repair suggestion, before
+        # remove_fragile_forward_declares/upgrade_cpp_forward_declares/the
+        # compile-verified repair loop all had their say - any of them can
+        # reconcile a removal straight back (a real incident: a header's
+        # `dmrs.h`/`rnti.h`/`ldpc_base_graph.h` removals all got individually
+        # restored while an unrelated forward-declare got upgraded to a real
+        # #include, netting to an ADD with no net REMOVE at all, yet `status`
+        # still read "removed"). Recompute it from what's actually different
+        # on disk - same "removed wins on a tie" rule the original guess used,
+        # so the vocabulary stays exactly {removed, added, no_change, skipped}.
+        if actual_removed:
+            result["status"] = "removed"
+        elif actual_added:
+            result["status"] = "added"
+        else:
+            result["status"] = "no_change"
 
     print(json.dumps(result))
 

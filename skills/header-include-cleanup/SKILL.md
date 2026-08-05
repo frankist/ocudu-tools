@@ -7,7 +7,7 @@ description: >
   includes in Y". Also applies to reducing compile-time/compile-memory cost via header
   hygiene. Not for a single ad-hoc file (just edit it directly) - this skill is for
   systematically sweeping every header under a directory.
-version: 1.0.0
+version: 1.1.0
 user-invocable: true
 ---
 
@@ -44,10 +44,73 @@ perfectly safe from that one TU's viewpoint can:
   forward-declare addition and confirm the symbol is actually used as a type (followed by
   `<`, `::`, `&`/`*`, or as a variable's declared type) before trusting it, at
   `forward-declare` level and above.
+- be invisible to every check the tooling has, compile-verified or not, when the usage is
+  inside a template member function body that is never instantiated by merely including
+  the header. The recurring concrete shape: a `template <> struct fmt::formatter<T>`
+  specialization whose `format()` passes a nested member (a `std::optional<U>`, a
+  `std::variant`, a container) *directly* to another format call rather than
+  dereferencing it first - that needs `fmt/std.h` (or a sibling `*_formatters.h`) for the
+  nested type's own formatter, but `format()`'s body is a template and is not
+  type-checked until something ELSE in the exact TU being checked actually calls
+  `fmt::format` on `T`. Neither `targeted`'s associated-TU recompile nor its solo-header
+  self-check (see below) can trigger that instantiation themselves, so both stay green
+  right up until the full project rebuild finds the one file that does call it. Real
+  incidents: `csi_report_formatters.h` and `pdcp_config.h`, both losing `fmt/std.h` to a
+  `targeted`-level removal that looked completely unused from every check this tool runs.
+  Treat removing `fmt/std.h`/`fmt/ranges.h`/a sibling `*_formatters.h` from a file
+  containing an `fmt::formatter` specialization as high-risk - grep the `format()` bodies
+  for a bare (non-`.value()`/non-dereferenced) member access before trusting the removal.
 
 None of this is visible from IWYU's output alone. The only real safety net is a full
 project rebuild (and ideally the full test suite) after every batch - see Phase 3. Treat
 every "should remove"/"should add" line as a hypothesis to verify, not a fact.
+
+### Why enums and template classes never get forward-declared
+
+Unlike a plain (non-template) class/struct, forward-declaring an enum or a template
+class/struct buys little while adding real fragility:
+- An enum definition is cheap to include, so there's little to save. A plain `enum` with
+  no explicit underlying type cannot be forward-declared at all, and one that does specify
+  an underlying type must repeat it *exactly* - if the real declaration's underlying type
+  ever changes, the forward-declare silently goes stale and breaks in a confusing way far
+  from its cause.
+- A template forward-declare must repeat every template parameter (after default-stripping,
+  see "Why defaults must be stripped" above) *exactly* - a signature change upstream (a
+  parameter added, reordered, or its default changed) silently breaks it the same way, and
+  the mismatch usually surfaces as a confusing error far from the header that needs fixing.
+
+The tooling therefore never leaves either shape behind, at `forward-declare` level or
+above, in a header OR a `.cpp`: whenever a removal would otherwise need one, it resolves
+the real header instead, trying (in order) IWYU's own full include-list for the symbol,
+then a header this same run removed and that genuinely declares it (verified against its
+real on-disk content, not guessed), then a project-wide search of the repo's own public
+headers for the one unambiguous definition. Only falls back to leaving the forward-declare
+in place if none of those three find anything - rare, and still safe (a forward-declare
+that compiles beats none), just not the ideal outcome; see
+`targeted_repair.remove_fragile_forward_declares`. A plain, non-template class/struct
+forward-declare is unaffected - that's the intended, safe case `forward-declare` level
+exists for.
+
+IWYU's own full include-list just names *a* header in the TU's graph that touches the
+symbol - not necessarily the one that defines it, since a header that merely *uses* the
+symbol pervasively (while itself `#include`ing the real definition) matches equally well
+from IWYU's point of view. Real incident: `search_space.h` needed `nr_band`, and this
+resolved to `band_helper.h` - a large header that uses `nr_band` throughout its own body -
+instead of the few-line `nr_band.h` that actually defines it, simply because
+`band_helper.h` happened to be IWYU's answer. Before trusting IWYU's full-list candidate,
+the tooling now verifies the candidate header's own on-disk content actually *defines* the
+symbol (the same enum/class/alias/typedef check the project-wide search uses); if it
+doesn't, resolution falls through to the next step instead. This is also why
+`find_defining_removed_include`'s own "does this removed header declare it" check
+recognizes `enum class X` and not just bare `enum X` - the earlier, narrower pattern
+silently downgraded every enum-class definition to the same weak "bare word appears
+somewhere" match a heavy, merely-*using* header gets, letting a tie go to whichever
+candidate was found first rather than the one that actually defines the symbol.
+
+IWYU also occasionally suggests a C standard-library header (`<stdint.h>`, `<math.h>`)
+in a C++ TU where this codebase's own convention is the C++ wrapper form (`<cstdint>`,
+`<cmath>`) - every added `#include` line is canonicalized against a small known-equivalents
+table before being written, at every level and every resolution path.
 
 ## Input
 
@@ -61,10 +124,14 @@ every "should remove"/"should add" line as a hypothesis to verify, not a fact.
     Safest; a wrong removal just fails to compile loudly, caught by the rebuild.
   - **`forward-declare`** - additionally replace a removable `#include` with a forward
     declaration when the file only needs an incomplete type (by pointer/reference, or a
-    by-value enum/plain-class). Real reduction in transitive header cost, but more ways to
+    by-value plain class/struct). Real reduction in transitive header cost, but more ways to
     get subtly wrong (see the failure modes above) - expect to hand-fix real cases the
     tooling can't get right on its own (elided-default usages, type aliases, extern
-    template instantiations).
+    template instantiations). **Never forward-declares an enum or a template class/struct**,
+    at this level or above - see "Why enums and template classes never get forward-declared"
+    below; any such forward-declare IWYU suggests is resolved back to the real header
+    instead, in every file, .h or .cpp alike. A plain, non-template class/struct
+    forward-declare is unaffected.
   - **`targeted`** - `forward-declare`, plus the minimum set of `#include` lines needed
     to repair what those edits actually broke - and nothing else. IWYU's raw output
     cannot distinguish "needed now that we removed its provider" from "pure
@@ -76,21 +143,32 @@ every "should remove"/"should add" line as a hypothesis to verify, not a fact.
     declaration cannot satisfy the use - free function, value context, complete-type
     requirement, elided default template arguments), or, failing that, puts back the one
     include of its own that declared the symbol. It never invents a header. Up to 3
-    recompile rounds, since the first missing symbol's error can mask the next. If
-    anything is left unresolved - an unknown symbol, or breakage in a file this run never
-    touched - it **reverts the header and its paired `.cpp` to their pre-run content** and
-    reports `skipped` naming what it could not resolve; it never leaves a file
-    half-migrated. Expect diffs the size of `forward-declare`'s plus a handful of lines,
-    versus `explicit`'s 10-50+ (real case: `bit_buffer.h` needs 2 of the 10 includes
-    `explicit` would add). This is the right level for "reduce header bloat, but keep it
-    compiling". One thing it cannot judge: whether the headers it adds back weigh less
-    than the one that was removed - pair it with `measure_closure` to find out.
-    **It does not replace Phase 3.** The recompile only proves the edited file
-    self-consistent against its OWN associated TU. It cannot see a distant file that
-    relied on the header re-exporting a symbol transitively - the single most common
-    failure mode of this whole exercise (`ring_buffer.h` dropping `expected.h` /
-    `noop_functor.h` broke 210 other files, and passes this level's own compile check
-    without a murmur). The full-project rebuild is still mandatory.
+    recompile rounds, since the first missing symbol's error can mask the next.
+    It also compiles the header **on its own** (a synthetic one-line TU that does
+    nothing but `#include` it, same `-I`/`-D`/`-std` flags as the associated TU - see
+    `targeted_repair.solo_compile_header`) - the associated TU's own recompile can stay
+    green while the header itself has quietly stopped being self-sufficient, if that TU
+    happens to reach the same symbol through some OTHER, untouched include (real
+    incidents: `pcch_configuration.h` losing `std::optional`, `prach_format_type.h`
+    losing `uint8_t`/`strcmp`/`std::underlying_type_t` - both passed their associated-TU
+    check and only broke once the full project rebuild needed the header standing
+    alone). If anything is left unresolved - an unknown symbol, or breakage in a file
+    this run never touched - it **reverts the header and its paired `.cpp` to their
+    pre-run content** and reports `skipped` naming what it could not resolve; it never
+    leaves a file half-migrated. Expect diffs the size of `forward-declare`'s plus a
+    handful of lines, versus `explicit`'s 10-50+ (real case: `bit_buffer.h` needs 2 of
+    the 10 includes `explicit` would add). This is the right level for "reduce header
+    bloat, but keep it compiling". One thing it cannot judge: whether the headers it
+    adds back weigh less than the one that was removed - pair it with `measure_closure`
+    to find out.
+    **It does not replace Phase 3.** Both checks only prove the edited file
+    self-consistent against a TU it happens to be compiled in. Neither can see a distant
+    file that relied on the header re-exporting a symbol transitively - the single most
+    common failure mode of this whole exercise (`ring_buffer.h` dropping `expected.h` /
+    `noop_functor.h` broke 210 other files, and passes both checks without a murmur), nor
+    a template body (an `fmt::formatter` specialization's own `format()`) that neither
+    check ever instantiates - see "Why this is hard" above. The full-project rebuild is
+    still mandatory.
   - **`explicit`** - additionally add plain `#include` lines for every symbol used
     directly but only reached transitively (IWYU's full self-sufficiency
     recommendation). Unlike `targeted` this is unconditional: every "should add"
@@ -191,15 +269,20 @@ for line in open(sys.argv[1]):
     d = json.loads(line)
     statuses[d['status']] = statuses.get(d['status'], 0) + 1
     if d['status'] in ('removed', 'added'):
-        changed.append((d['header'], d.get('removed_lines'), d.get('added_lines'),
-                        d.get('other_file_changes'), d.get('closure')))
+        # actual_* reflects the file's real final content; removed_lines/added_lines
+        # are only the raw pre-repair suggestion - fall back to them only when
+        # actual_* is absent (dry-run, or a level with no later fixup to diverge).
+        changed.append((d['header'], d.get('actual_removed_lines', d.get('removed_lines')),
+                        d.get('actual_added_lines', d.get('added_lines')),
+                        d.get('other_file_changes'), d.get('closure'), d.get('solo_header_findings')))
         saved_total += (d.get('closure') or {}).get('saved') or 0
     if d['status'] == 'skipped':
         skipped.append((d['header'], d.get('detail')))
 print('counts:', statuses)
-for h, rl, al, other, closure in changed:
+for h, rl, al, other, closure, solo in changed:
     print('CHANGED', h, 'removed:', rl, 'added:', al)
     if other: print('  ALSO EDITED', list(other))
+    if solo: print('  SOLO-HEADER CHECK CAUGHT', solo)
     if closure and 'saved' in closure:
         print('  PREPROCESSED LINES', closure['saved'], 'saved of', closure['before'], 'in', closure['tu'])
     elif closure:
@@ -231,10 +314,34 @@ Other skip details mean different things, and only the first is routine:
   the edited files` is an early warning that this header is relied on transitively, i.e.
   a Phase 3 decision-tree case found one batch sooner than usual.
 
-At `targeted` level each header costs one IWYU run plus up to 3 recompiles, so batches
-take noticeably longer; `run_batch.sh` widens its own hard timeout to match. Results carry
-two extra fields, `targeted_additions` (each with the reason it was added) and
-`validation_rounds`.
+At `targeted` level each header costs one IWYU run plus up to 3 recompiles (plus the
+solo-header self-check, see the level description above), so batches take noticeably
+longer; `run_batch.sh` widens its own hard timeout to match. Results carry extra fields:
+`targeted_additions` (each with the reason it was added), `validation_rounds`, and
+`solo_header_findings` (populated only when the solo self-check, not the associated-TU
+recompile, is what caught something - worth noting when it fires, since that's a concrete
+sign the check is pulling its weight and not just redundant with the associated-TU one).
+
+**`removed_lines`/`added_lines` are the raw suggestion asked for, not a report of what
+ended up on disk** - `remove_fragile_forward_declares`, `upgrade_cpp_forward_declares`,
+and (at `targeted`) the repair loop can all still rewrite the file after that suggestion
+was recorded (a removal can get fully restored while an unrelated forward-declare
+resolves to a real header elsewhere in the same file, netting to an add with no net
+remove at all, yet the stale fields would still say "removed"). Prefer
+`actual_removed_lines`/`actual_added_lines` when present - computed from a real diff of
+the file's pre-run backup against its final content, after every later fixup has had its
+say - and treat `status` as accurate (it's recomputed from the same actual diff too).
+The raw `removed_lines`/`added_lines` are still worth keeping around as a record of what
+was originally asked for, useful mainly when it disagrees with the actual fields.
+
+**Immediately after reviewing a batch's results, go straight to Phase 3 and rebuild -
+before starting the next batch.** Do not process every batch first and rebuild once at
+the end: `ninja`'s own incrementality means the total compile work is the same either
+way, but debugging a rebuild scoped to one ~30-header batch (1-2 root causes) is far
+faster than untangling one scoped to nine batches at once (5+ simultaneous, unrelated
+root causes competing for attention in a single sprawling error log - this is exactly
+what made the ran/ cleanup pass slower than it needed to be). Only after Phase 3 comes
+back clean for this batch should the next one start.
 
 ## Measuring the win
 
@@ -275,10 +382,12 @@ Interpret the number against which TU was measured:
 A `closure` field carrying only `detail` means the measurement failed or timed out - it
 never affects whether the header's edits were kept.
 
-## Phase 3 - Validate every batch with a full rebuild
+## Phase 3 - Validate immediately after EACH batch with a full rebuild
 
-This step is not optional and not skippable, regardless of level or of how confident the
-per-file output looks - `targeted`'s recompile check is per-file, never project-wide:
+Run this right after every single batch from Phase 2, not once after the whole target
+directory is done - see the note at the end of Phase 2 for why. This step is not
+optional and not skippable, regardless of level or of how confident the per-file output
+looks - `targeted`'s own checks are per-file, never project-wide:
 
 ```bash
 ninja -C <build_dir> -j$(nproc)
@@ -317,7 +426,17 @@ decision tree:
 4. **A type alias** (`using X = Y;`) can **never** be forward-declared - if a removal
    depends on forward-declaring an alias, it's simply wrong; keep the real `#include`, or
    push the fix to the actual consumer if the alias-using file is the distant one.
-5. When you DO revert a header change, **also check for and revert any associated `.cpp`
+5. **Is the error inside an `fmt::formatter<T>` specialization's own `format()` body**
+   (a `type_is_unformattable_for<...>` error, or a missing member on a config/data
+   struct that formatter formats)? This is template-body breakage - see "Why this is
+   hard" above - and neither `targeted`'s associated-TU check nor its solo-header check
+   can see it, since that body is never instantiated by including the header alone.
+   Usually means a removed `fmt/std.h`/`fmt/ranges.h`/sibling `*_formatters.h` was
+   actually needed for a nested member (a `std::optional<U>`, a `std::variant`, another
+   custom type) the formatter passes to a further format call without dereferencing
+   first. Add the real header back to whichever file defines the formatter, not
+   wherever the rebuild happened to first instantiate it.
+6. When you DO revert a header change, **also check for and revert any associated `.cpp`
    changes** - `process_header.py` in `associated_cpp` mode can modify both the header and
    its own `.cpp` in one pass, and reports the pair under `other_file_changes` /
    `touched_files` in the results. Reverting only the `.h` half of a broken pair leaves a
@@ -327,7 +446,7 @@ decision tree:
    ```bash
    git status --short | grep -v '^??'
    ```
-6. Rebuild again to confirm green before moving to the next batch.
+7. Rebuild again to confirm green before moving to the next batch.
 
 ## Phase 4 - Final validation
 

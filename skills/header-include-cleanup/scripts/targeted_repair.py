@@ -14,16 +14,27 @@ alone; only the symbols the compiler actually reports as missing get an
 addition, and the addition used is the one IWYU itself already published for
 that symbol - never a header guessed from thin air.
 
-Scope of the guarantee: this only proves the edited file self-consistent
-against its OWN associated TU. A distant consumer that relied on the edited
-header re-exporting a symbol transitively is invisible here and is still only
-caught by the skill's mandatory full-project rebuild (SKILL.md Phase 3).
+Scope of the guarantee: proving the edited file self-consistent against its
+OWN associated TU is not quite the same thing as proving the HEADER
+self-sufficient - the associated TU can still transitively reach a symbol
+through some OTHER include the header itself no longer provides, silently
+masking a real gap in the header's own content (real incidents:
+`pcch_configuration.h` and `prach_format_type.h`, both of which recompiled
+their associated .cpp clean after losing their real provider of
+`std::optional`/`uint8_t`, only to fail every OTHER consumer once the full
+project rebuild forced the header to stand on its own). `repair()` therefore
+also solo-compiles the header itself - see solo_compile_header() - as a
+cheap, additional, unmaskable check. Neither check, alone or together, can
+see a DISTANT consumer that relied on the edited header re-exporting a
+symbol transitively; that class is still only caught by the skill's
+mandatory full-project rebuild (SKILL.md Phase 3).
 
 Entry point: repair(). Returns a report dict; the caller owns backup/restore.
 """
 import os
 import re
 import subprocess
+import tempfile
 
 # IWYU output section headers.
 _ADD_HEADER_RE = re.compile(r"^(.*) should add these lines:$")
@@ -246,8 +257,16 @@ def find_defining_removed_include(symbol, removed_stmts, search_dirs, includer_d
     published suggestions: it is a verified undo, not a guess."""
     best = None
     best_score = 0
-    decl_re = re.compile(r"(?:\b(?:class|struct|enum|union|using|typedef)\s+" + re.escape(symbol) +
-                         r"\b)|(?:\b" + re.escape(symbol) + r"\s*[(<])")
+    # `enum` gets its own alternative (rather than folding into the plain
+    # class/struct/union/using/typedef one) because its keyword can carry an
+    # optional `class`/`struct` in between (`enum class X`) - a real incident:
+    # this used to only match bare `enum X`, so `nr_band.h`'s own `enum class
+    # nr_band { ... }` scored the same weak "bare word" match as
+    # `band_helper.h` merely USING `nr_band` everywhere without defining it,
+    # and the heavier header won the tie by appearing first.
+    decl_re = re.compile(r"(?:\b(?:class|struct|union|using|typedef)\s+" + re.escape(symbol) + r"\b)"
+                         r"|(?:\benum(?:\s+(?:class|struct))?\s+" + re.escape(symbol) + r"\b)"
+                         r"|(?:\b" + re.escape(symbol) + r"\s*[(<])")
     word_re = re.compile(r"\b" + re.escape(symbol) + r"\b")
     for stmt in removed_stmts:
         path = resolve_include_path(stmt, search_dirs, includer_dir, repo_root)
@@ -372,6 +391,8 @@ def resolve_addition(missing, table, removed_stmts, file_text, search_dirs, repo
     forward-declare": a .cpp has no downstream consumer to amortize the
     forward-declare's cost over, so it buys nothing while adding the same
     fragility a header risks)."""
+    from strip_iwyu_output import canonicalize_c_header_include
+
     symbol = missing["symbol"]
     includer_dir = os.path.dirname(missing["file"])
     is_cpp = missing["file"].endswith(_CPP_SUFFIXES)
@@ -380,7 +401,7 @@ def resolve_addition(missing, table, removed_stmts, file_text, search_dirs, repo
     if entry is not None:
         statement = _strip_trailing_comment(entry).strip()
         if _INCLUDE_RE.match(statement):
-            return statement, "iwyu_add_include"
+            return canonicalize_c_header_include(statement), "iwyu_add_include"
         if not is_cpp and not missing["needs_definition"] and not _NESTED_CLASS_FWD_DECL_RE.search(statement):
             # Same safety filtering a forward-declare gets at `forward-declare`
             # level: defaults stripped so it can never collide with the real
@@ -392,11 +413,20 @@ def resolve_addition(missing, table, removed_stmts, file_text, search_dirs, repo
     if full_entry is not None:
         statement = _strip_trailing_comment(full_entry).strip()
         if _INCLUDE_RE.match(statement) and not _already_present(file_text, statement):
-            return statement, "iwyu_full_include_list"
+            # IWYU's full include-list just names A header in the TU's graph
+            # that touches this symbol - not necessarily its defining one (it
+            # can equally be a heavy header that merely USES the symbol
+            # pervasively while itself #including the real definition). Verify
+            # before trusting it; an unresolvable path (system header, symbol
+            # defined outside include/) can't be checked and is trusted as
+            # before.
+            candidate_path = resolve_include_path(statement, search_dirs, includer_dir, repo_root)
+            if candidate_path is None or _is_definition_of(symbol, candidate_path, strip_fn):
+                return canonicalize_c_header_include(statement), "iwyu_full_include_list"
 
     restored = find_defining_removed_include(symbol, removed_stmts, search_dirs, includer_dir, repo_root, strip_fn)
     if restored is not None:
-        return restored, "restored_own_removal"
+        return canonicalize_c_header_include(restored), "restored_own_removal"
 
     return None, f"no provider known for '{symbol}'"
 
@@ -408,6 +438,41 @@ _PROJECT_ENUM_DEF_RE = re.compile(r"\benum(?:\s+(?:class|struct))?\s+([A-Za-z_]\
 _PROJECT_CLASS_DEF_RE = re.compile(r"\b(?:class|struct)\s+([A-Za-z_]\w*)\b[^;{]*\{")
 _PROJECT_ALIAS_RE = re.compile(r"\busing\s+([A-Za-z_]\w*)\s*=")
 _PROJECT_TYPEDEF_RE = re.compile(r"\btypedef\b[^;{}]*?\b([A-Za-z_]\w*)\s*;")
+
+
+def _blank_template_param_lists(text):
+    """Blank the CONTENTS of every top-level `template <...>` parameter list
+    (spaces, preserving newlines) before the definition regexes below run.
+
+    Without this, `template <class R, class... Args> class unique_function
+    {` misattributes the definition to `R` - `_PROJECT_CLASS_DEF_RE` just
+    looks for the next "class NAME" before a "{", and "class R" inside the
+    parameter list matches first. A template parameter declared with the
+    `class`/`struct`/`typename` keyword is not a definition of anything."""
+    out = list(text)
+    n = len(text)
+    i = 0
+    while i < n:
+        if text[i:i + 8] == "template" and (i == 0 or not (text[i - 1].isalnum() or text[i - 1] == "_")):
+            j = i + 8
+            while j < n and text[j] in " \t\r\n":
+                j += 1
+            if j < n and text[j] == "<":
+                depth = 1
+                k = j + 1
+                while k < n and depth > 0:
+                    if text[k] == "<":
+                        depth += 1
+                    elif text[k] == ">":
+                        depth -= 1
+                    k += 1
+                for p in range(j, k):
+                    if out[p] != "\n":
+                        out[p] = " "
+                i = k
+                continue
+        i += 1
+    return "".join(out)
 
 
 def _build_project_header_index(include_root, strip_fn):
@@ -429,7 +494,7 @@ def _build_project_header_index(include_root, strip_fn):
             path = os.path.join(dirpath, fn)
             try:
                 with open(path, errors="replace") as f:
-                    body = strip_fn(f.read())
+                    body = _blank_template_param_lists(strip_fn(f.read()))
             except OSError:
                 continue
             for regex in (_PROJECT_ENUM_DEF_RE, _PROJECT_CLASS_DEF_RE, _PROJECT_ALIAS_RE, _PROJECT_TYPEDEF_RE):
@@ -450,6 +515,33 @@ def find_declaring_project_header(symbol, project_index, include_root):
         return None
     rel = os.path.relpath(next(iter(paths)), include_root)
     return f'#include "{rel}"'
+
+
+def _is_definition_of(symbol, header_path, strip_fn):
+    """Whether header_path's own on-disk content actually DEFINES symbol (an
+    enum/class/struct/alias/typedef), not merely uses it or reaches it by
+    itself #including its real header.
+
+    Used to reject a resolution candidate that only reaches a symbol by
+    using it pervasively rather than defining it - real incident:
+    `search_space.h` needed `nr_band`, and IWYU's own "full include-list"
+    named `band_helper.h` (which uses `nr_band` throughout its own body,
+    and also #includes nr_band.h, but does not define it) ahead of the
+    much lighter `nr_band.h` (the actual definition) ever being considered.
+    Only ever narrows a candidate down, never invents one - an unresolvable
+    path (a system header, a symbol defined outside include/) simply
+    returns False and the caller falls through to its next resolution
+    step."""
+    try:
+        with open(header_path, errors="replace") as f:
+            body = _blank_template_param_lists(strip_fn(f.read()))
+    except OSError:
+        return False
+    for regex in (_PROJECT_ENUM_DEF_RE, _PROJECT_CLASS_DEF_RE, _PROJECT_ALIAS_RE, _PROJECT_TYPEDEF_RE):
+        for m in regex.finditer(body):
+            if m.group(1) == symbol:
+                return True
+    return False
 
 
 def _scan_fwd_decl_block(lines, i):
@@ -520,6 +612,8 @@ def upgrade_cpp_forward_declares(cmd_list, repo_root, files_to_modify, raw_iwyu_
     X` block, and only when EVERY symbol inside resolves; otherwise the block
     is left untouched rather than risk a partial, guessed edit. Returns the
     list of files actually changed."""
+    from strip_iwyu_output import canonicalize_c_header_include
+
     search_dirs = include_search_dirs(cmd_list)
     include_root = os.path.join(repo_root, "include")
     project_index = None
@@ -586,6 +680,7 @@ def upgrade_cpp_forward_declares(cmd_list, repo_root, files_to_modify, raw_iwyu_
                 if stmt is None:
                     all_resolved = False
                     break
+                stmt = canonicalize_c_header_include(stmt)
                 if stmt not in replacements:
                     replacements.append(stmt)
             if not all_resolved:
@@ -607,6 +702,341 @@ def upgrade_cpp_forward_declares(cmd_list, repo_root, files_to_modify, raw_iwyu_
                 f.write("\n".join(out))
             touched.append(path)
     return touched
+
+
+_ENUM_FWD_DECL_CORE_RE = re.compile(r"^enum(?:\s+(?:class|struct))?\s+([A-Za-z_][\w:]*)\s*(?::[^;{}]*)?;$")
+_TEMPLATE_CLASS_FWD_DECL_CORE_RE = re.compile(r"^(?:class|struct)\s+([A-Za-z_][\w:]*)\s*;$")
+_NS_PREFIX_ONE_RE = re.compile(r"^namespace\s+[A-Za-z_][\w:]*\s*\{\s*")
+_TEMPLATE_KEYWORD_RE = re.compile(r"^template\s*<")
+
+
+def _extract_fragile_fwd_decl_symbol(stripped_line):
+    """If `stripped_line` is (optionally same-line-namespace-wrapped) nothing
+    but a single enum OR template class/struct forward-declare, return its
+    bare symbol name; else None.
+
+    These are the two forward-declare shapes never left behind, in any file -
+    see "Why enums never get forward-declared" in SKILL.md; a template
+    forward-declare is fragile for the same reason plus one more: it must
+    repeat every template parameter (post default-stripping) exactly, so a
+    signature change upstream silently breaks it. Covers both IWYU's own
+    one-line form (`namespace ocudu { enum class rnti_t : uint16_t; }`) and a
+    bare body line inside a separately-opened multi-line namespace block (see
+    _scan_fwd_decl_block), which has zero wraps on its own line.
+
+    Requires `template <...>` (a parameter LIST) directly before the
+    class/struct keyword, so an explicit template instantiation - which has
+    no parameter list, just `template class Foo<Bar>;` or
+    `extern template class Foo<Bar>;` with actual template ARGUMENTS after
+    the class name - never matches and is always left untouched, wherever it
+    already exists in a file."""
+    s = stripped_line
+    depth = 0
+    while True:
+        m = _NS_PREFIX_ONE_RE.match(s)
+        if not m:
+            break
+        s = s[m.end():]
+        depth += 1
+    if depth:
+        core = s.rstrip()
+        trailing = 0
+        while trailing < depth and core.endswith("}"):
+            core = core[:-1].rstrip()
+            trailing += 1
+        if trailing != depth:
+            return None
+        s = core
+    else:
+        s = s.strip()
+    m_enum = _ENUM_FWD_DECL_CORE_RE.match(s)
+    if m_enum:
+        return m_enum.group(1)
+    m_tmpl = _TEMPLATE_KEYWORD_RE.match(s)
+    if m_tmpl:
+        i = m_tmpl.end()
+        tdepth = 1
+        while i < len(s) and tdepth > 0:
+            if s[i] == "<":
+                tdepth += 1
+            elif s[i] == ">":
+                tdepth -= 1
+            i += 1
+        if tdepth == 0:
+            m_cls = _TEMPLATE_CLASS_FWD_DECL_CORE_RE.match(s[i:].strip())
+            if m_cls:
+                return m_cls.group(1)
+    return None
+
+
+_MAX_FRAGILE_FWD_DECL_SPAN = 6
+
+
+def _match_fragile_fwd_decl_span(lines, start):
+    """Like _extract_fragile_fwd_decl_symbol, but tolerates a template
+    forward-declare's parameter list being split across multiple lines - seen
+    in practice when fix_include merges a long one into an already-open
+    namespace scope rather than wrapping it standalone. Returns
+    (end_index, symbol) if lines[start:end_index+1] joined is a fragile
+    forward-declare, else (start, None) - the single-line case is just the
+    span start == end == the one line that already matched on its own."""
+    symbol = _extract_fragile_fwd_decl_symbol(lines[start].strip())
+    if symbol is not None:
+        return start, symbol
+    # Only worth accumulating if this line - once same-line namespace wraps
+    # are peeled - opens a template parameter list without yet closing the
+    # whole statement; anything else is definitely not a split candidate.
+    s = lines[start].strip()
+    while True:
+        m = _NS_PREFIX_ONE_RE.match(s)
+        if not m:
+            break
+        s = s[m.end():]
+    if not _TEMPLATE_KEYWORD_RE.match(s) or ";" in s:
+        return start, None
+    joined = lines[start].strip()
+    for end in range(start + 1, min(start + _MAX_FRAGILE_FWD_DECL_SPAN, len(lines))):
+        joined = joined + " " + lines[end].strip()
+        symbol = _extract_fragile_fwd_decl_symbol(joined)
+        if symbol is not None:
+            return end, symbol
+        if ";" in lines[end]:
+            break  # statement ended without ever matching - give up
+    return start, None
+
+
+def _drop_empty_namespace_wraps_once(lines):
+    out = []
+    i = 0
+    while i < len(lines):
+        m_open = _NS_WRAP_OPEN_RE.match(lines[i].strip())
+        if m_open:
+            ns = m_open.group(1)
+            j = i + 1
+            while j < len(lines) and not lines[j].strip():
+                j += 1
+            if j < len(lines):
+                m_close = _NS_WRAP_CLOSE_RE.match(lines[j].strip())
+                if m_close and (m_close.group(1) is None or m_close.group(1) == ns):
+                    i = j + 1
+                    continue
+        out.append(lines[i])
+        i += 1
+    return out
+
+
+def _drop_empty_namespace_wraps(lines):
+    """Repeat _drop_empty_namespace_wraps_once until stable, so an outer
+    namespace block left empty by removing its only (now-resolved) inner
+    block also gets cleaned up, not just the innermost one."""
+    for _ in range(5):
+        new_lines = _drop_empty_namespace_wraps_once(lines)
+        if new_lines == lines:
+            return new_lines
+        lines = new_lines
+    return lines
+
+
+def remove_fragile_forward_declares(cmd_list, repo_root, files_to_modify, raw_iwyu_text, strip_fn):
+    """Replace every enum or template class/struct forward-declare THIS RUN
+    added with the real header, in any file - .h or .cpp - never leave one
+    behind.
+
+    An enum forward-declare must exactly repeat the real declaration's
+    underlying type, and is outright illegal for a plain `enum` with no
+    explicit underlying type. A template forward-declare must exactly repeat
+    every template parameter (post default-stripping, see
+    strip_template_defaults_in_line) - a signature change upstream silently
+    breaks it. Both are fragile for a payoff too small to make worthwhile
+    (unlike a plain, non-template class/struct, which can hide a genuinely
+    heavy header behind the forward-declare and is left alone here).
+
+    Resolution order mirrors upgrade_cpp_forward_declares: IWYU's own full
+    include-list for the symbol, then a header THIS RUN itself removed and
+    that really declares it (read from disk, not guessed), then a
+    project-wide search of the repo's own public headers. Only touches
+    symbols this run's own strip step added (checked against the raw IWYU
+    "add" table for the file) - a forward-declare the file already had before
+    this run is left alone.
+
+    Falls back to leaving the forward-declare in place only if no real header
+    can be found by any of the three routes above - rare, and still safe (a
+    forward-declare that compiles beats none), just not the ideal outcome.
+    Returns the list of files actually changed."""
+    from strip_iwyu_output import canonicalize_c_header_include
+
+    search_dirs = include_search_dirs(cmd_list)
+    include_root = os.path.join(repo_root, "include")
+    project_index = None
+    tables = build_symbol_tables(raw_iwyu_text)
+    all_removed = []
+    for f in files_to_modify:
+        if not f:
+            continue
+        for stmt in removed_includes_of(raw_iwyu_text, f):
+            if stmt not in all_removed:
+                all_removed.append(stmt)
+
+    touched = []
+    for path in files_to_modify:
+        if not path:
+            continue
+        add_table = tables.get(path, {}).get("add", {})
+        full_table = tables.get(path, {}).get("full", {})
+        try:
+            with open(path) as f:
+                text = f.read()
+        except OSError:
+            continue
+        lines = text.split("\n")
+        includer_dir = os.path.dirname(path)
+        out = []
+        new_includes = []
+        changed = False
+        i = 0
+        n = len(lines)
+        while i < n:
+            span_end, symbol = _match_fragile_fwd_decl_span(lines, i)
+            if symbol is None:
+                out.append(lines[i])
+                i += 1
+                continue
+            symbol = symbol.rsplit("::", 1)[-1]
+            if symbol not in add_table:
+                out.extend(lines[i:span_end + 1])  # pre-existing, not something this run added
+                i = span_end + 1
+                continue
+            stmt = None
+            full_entry = full_table.get(symbol)
+            if full_entry is not None:
+                candidate = _strip_trailing_comment(full_entry).strip()
+                if _INCLUDE_RE.match(candidate):
+                    # Verify before trusting: IWYU's full include-list just names A
+                    # header in the TU's graph that touches this symbol, which can be
+                    # a heavy header that merely USES it pervasively rather than the
+                    # one that actually defines it (real incident: `nr_band` resolved
+                    # to `band_helper.h` instead of the far lighter `nr_band.h`).
+                    candidate_path = resolve_include_path(candidate, search_dirs, includer_dir, repo_root)
+                    if candidate_path is None or _is_definition_of(symbol, candidate_path, strip_fn):
+                        stmt = candidate
+            if stmt is None:
+                stmt = find_defining_removed_include(symbol, all_removed, search_dirs, includer_dir, repo_root,
+                                                     strip_fn)
+            if stmt is None:
+                if project_index is None:
+                    project_index = _build_project_header_index(include_root, strip_fn)
+                stmt = find_declaring_project_header(symbol, project_index, include_root)
+            if stmt is None:
+                out.extend(lines[i:span_end + 1])  # no real header known - keep the forward-declare
+                i = span_end + 1
+                continue
+            stmt = canonicalize_c_header_include(stmt)
+            if stmt not in new_includes:
+                new_includes.append(stmt)
+            changed = True  # span dropped - it collapses into new_includes below
+            i = span_end + 1
+        if not changed:
+            continue
+        out = _drop_empty_namespace_wraps(out)
+        for stmt in new_includes:
+            if not _already_present("\n".join(out), stmt):
+                out = _splice(out, stmt)
+        with open(path, "w") as f:
+            f.write("\n".join(out))
+        touched.append(path)
+    return touched
+
+
+_SRC_EXT_RE = re.compile(r"\.(?:cpp|cc|cxx)$", re.IGNORECASE)
+
+
+def _find_source_arg(cmd_list):
+    """The index of the original .cpp/.cc/.cxx source path inside an
+    already-IWYU-sanitized command list - the one positional argument
+    sanitize_command() passes through untouched. Swapping just this one
+    argument for a synthetic TU keeps every -I/-D/-std flag identical to
+    the real associated-TU check."""
+    for i, p in enumerate(cmd_list):
+        if not p.startswith("-") and _SRC_EXT_RE.search(p):
+            return i
+    return None
+
+
+def _header_include_spec(header_path, search_dirs, repo_root):
+    """The `#include "..."` spec a real consumer would use to reach
+    header_path, resolved against the same -I/-iquote dirs the associated
+    TU's own build uses - the shortest one, since a header can legally sit
+    under more than one search dir. None if it isn't reachable from any of
+    them (would mean the header can't be #included at all as things stand -
+    never guessed, just skipped)."""
+    best = None
+    for d in search_dirs:
+        base = os.path.normpath(d if os.path.isabs(d) else os.path.join(repo_root, d))
+        try:
+            rel = os.path.relpath(header_path, base)
+        except ValueError:
+            continue
+        if rel.startswith(".."):
+            continue
+        if best is None or len(rel) < len(best):
+            best = rel
+    return best.replace(os.sep, "/") if best else None
+
+
+def solo_compile_header(cmd_list, repo_root, header_path, timeout=30):
+    """Whether header_path compiles standing entirely on its own - nothing
+    assumed except its own #include list - and the raw IWYU stderr if not.
+
+    Built by swapping the associated TU's own source-file argument for a
+    synthetic one-liner that does nothing but `#include` the header, then
+    running the exact same (already IWYU-sanitized) cmd_list against it -
+    same -I/-D/-std flags, same IWYU binary, so every existing error-parsing
+    helper (has_compile_error, parse_compile_errors) applies unchanged; a
+    diagnostic naming a symbol used inside the header itself reports the
+    header's own real path, which already satisfies repair()'s `m["file"]
+    in targets` check with no remapping needed.
+
+    This exists because the associated-TU check alone can be masked: that TU
+    can still reach a symbol through some OTHER include the header itself no
+    longer provides, so the header can silently stop being self-sufficient
+    even while its own paired .cpp keeps compiling clean (real incidents:
+    `pcch_configuration.h` losing `std::optional`, `prach_format_type.h`
+    losing `uint8_t`/`strcmp`/`std::underlying_type_t` - both passed their
+    associated-TU check and only broke once something ELSE in the full
+    project rebuild needed the header standing alone). Compiling a
+    single-#include TU can't be fooled that way: there is nothing else in it
+    to mask a gap with.
+
+    Returns (True, "") when the header can't be checked this way at all (no
+    resolvable #include spec, no source-file argument to swap, or the check
+    itself times out) - inconclusive is not the same as broken, and this
+    must never be able to fail a header the rest of the pipeline handled
+    fine."""
+    search_dirs = include_search_dirs(cmd_list)
+    spec = _header_include_spec(header_path, search_dirs, repo_root)
+    if spec is None:
+        return True, ""
+    src_idx = _find_source_arg(cmd_list)
+    if src_idx is None:
+        return True, ""
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".cpp", delete=False) as tmp:
+            tmp.write(f'#include "{spec}"\n')
+            tmp_path = tmp.name
+        solo_cmd = list(cmd_list)
+        solo_cmd[src_idx] = tmp_path
+        try:
+            proc = subprocess.run(solo_cmd, capture_output=True, text=True, timeout=timeout, cwd=repo_root)
+        except subprocess.TimeoutExpired:
+            return True, ""
+        return not has_compile_error(proc.returncode, proc.stderr), proc.stderr
+    finally:
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
 
 
 def repair(cmd_list, repo_root, files_to_modify, raw_iwyu_text, strip_fn, pre_run_contents=None,
@@ -632,21 +1062,51 @@ def repair(cmd_list, repo_root, files_to_modify, raw_iwyu_text, strip_fn, pre_ru
     pre_run_contents = pre_run_contents or {}
     additions = {}
     report = {"ok": False, "rounds": 0, "additions": additions, "dropped_forward_declares": {},
-              "reason": None, "stderr_tail": ""}
+              "reason": None, "stderr_tail": "", "solo_header_findings": []}
+
+    header_path = targets[0]
+    # A header standing entirely on its own is strictly cheaper to check than
+    # recompiling the whole associated TU (see solo_compile_header) and, once
+    # true, never becomes false again across rounds (repair() only adds
+    # things) - so it's only worth spending a round on until it first passes.
+    solo_passed = False
+    solo_timeout = min(timeout, 30)
 
     for attempt in range(1, rounds + 1):
         report["rounds"] = attempt
+        solo_ok, solo_stderr = (True, "") if solo_passed else solo_compile_header(
+            cmd_list, repo_root, header_path, timeout=solo_timeout)
+        solo_passed = solo_passed or solo_ok
+
         try:
             proc = subprocess.run(cmd_list, capture_output=True, text=True, timeout=timeout, cwd=repo_root)
         except subprocess.TimeoutExpired:
             report["reason"] = f"validation compile timed out after {timeout}s"
             return report
-        if not has_compile_error(proc.returncode, proc.stderr):
+        assoc_ok = not has_compile_error(proc.returncode, proc.stderr)
+
+        if solo_ok and assoc_ok:
             report["ok"] = True
             return report
 
-        report["stderr_tail"] = proc.stderr[-1500:]
-        missing = parse_compile_errors(proc.stderr)
+        report["stderr_tail"] = (proc.stderr if not assoc_ok else solo_stderr)[-1500:]
+        missing = []
+        if not solo_ok:
+            solo_missing = parse_compile_errors(solo_stderr)
+            if attempt == 1:
+                report["solo_header_findings"] = [f"{m['symbol']}: {m['diagnostic']}" for m in solo_missing]
+            missing.extend(solo_missing)
+        if not assoc_ok:
+            missing.extend(parse_compile_errors(proc.stderr))
+        seen_keys = set()
+        deduped = []
+        for m in missing:
+            key = (m["file"], m["symbol"])
+            if key not in seen_keys:
+                seen_keys.add(key)
+                deduped.append(m)
+        missing = deduped
+
         relevant = [m for m in missing if m["file"] in targets]
         if not missing:
             report["reason"] = "validation failed with no identifiable missing symbol"
