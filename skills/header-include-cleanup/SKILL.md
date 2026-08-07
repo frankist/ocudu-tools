@@ -382,6 +382,46 @@ Interpret the number against which TU was measured:
 A `closure` field carrying only `detail` means the measurement failed or timed out - it
 never affects whether the header's edits were kept.
 
+## Measuring the whole-project win (optional, expensive - for reporting back)
+
+`measure_closure`'s preprocessed-line delta is real, but it is still a proxy: a line
+count, not what the compiler actually spends memory and time on (template instantiation,
+symbol tables, optimization passes all scale with more than line count). When the goal is
+a concrete "compiling this got cheaper by X" number for the whole target directory - not
+just per-header sanity checks along the way - run a full clean-build memory trace before
+starting and again once every batch is done, then diff the two reports:
+
+```bash
+bash "$SKILL_DIR/scripts/run_mem_trace_build.sh" <path-to-repo-or-worktree>
+```
+
+This does a **full clean rebuild with clang, ccache disabled**, wrapping every compile
+invocation in `/usr/bin/time` to record peak RSS, and writes a ranked report (worst
+offenders first) plus a CSV and a metadata file under
+`<repo>/build-mem-trace/reports/clang-mem-trace-<timestamp>/`. It reconfigures
+`build-mem-trace` from scratch each run, so it never touches the repo's real build
+directory or working tree.
+
+**Hand this command to the user to run themselves, in their own terminal - do not try to
+run it via a background Bash call.** A full clean rebuild with no ccache takes a genuinely
+long time (this is a real constraint, not caution for its own sake), and the script's own
+header says as much. Report progress by asking them to share the finished report's path,
+not by attempting to babysit it yourself.
+
+How to use it for a before/after comparison:
+- **Before Phase 1**, on the pre-cleanup commit, run it once and note the report
+  directory (or have the user do so) - this is the baseline.
+- **After Phase 4** goes green, run it again on the cleaned-up state.
+- Compare the two `mem-report.txt` files: the mean/median/max peak-RSS lines, and whether
+  the specific translation units that were the worst offenders in the baseline actually
+  dropped in the after report. A directory-wide sweep that doesn't move the worst
+  offenders at all is a sign the wrong directory was picked for this goal, not that the
+  edits inside it were wrong.
+- This is a whole-project number, not a per-header one - it complements `measure_closure`
+  (which can pinpoint which specific edit helped or hurt) rather than replacing it. Skip
+  it entirely for a small or exploratory sweep; it earns its cost only when the user wants
+  a real "before vs after" figure to report, not a running sanity check.
+
 ## Phase 3 - Validate immediately after EACH batch with a full rebuild
 
 Run this right after every single batch from Phase 2, not once after the whole target
