@@ -5,7 +5,7 @@ description: >
   failing CI pipeline jobs. Trigger phrases: "fix this MR", "CI is failing on", "the
   pipeline failed", "fix the failing job", "look at this MR", followed by or combined
   with a GitLab MR URL or MR number.
-version: 1.0.0
+version: 1.1.0
 user-invocable: true
 context: fork
 ---
@@ -129,6 +129,16 @@ bash "$SKILL_DIR/scripts/fetch_job_log.sh" "$GITLAB_BASE" "$PROJECT_PATH" "$JOB_
 
 For infra/network failures, write a brief assessment and **stop** — these are not fixable by a code change.
 
+**Cross-check the job name before classifying the fix.** The same error text implies a different fix depending on which job produced it.
+
+*Per-commit build jobs* (job name contains `intermediate commits`, e.g. `intermediate commits cached`) compile every commit of the branch individually, not just the tip. If such a job fails on compilation/linking while all tip-of-branch build jobs in the same pipeline **succeed**, the branch tip is fine and one *intermediate* commit is broken. The fix is a **history rewrite** (amend/fixup+autosquash into the offending commit), not a new commit on top — an extra commit leaves the intermediate commit broken and the job keeps failing.
+
+Identify the offending commit from the log — the job checks out each commit in turn and echoes it:
+```bash
+grep -nE "^\s*(Building|Checking|Compiling)? ?commit|git checkout [0-9a-f]{7,}|HEAD is now at" "$LOG_FILE" | tail -20
+```
+Then take the last such SHA before the first `error:` line. Record it as `BROKEN_SHA` and continue to Phase 5.
+
 For all other categories, continue to Phase 5.
 
 ## Phase 5 — Create Worktree on MR Branch
@@ -182,6 +192,38 @@ Apply code fixes **in the worktree** following the project's coding conventions 
   ```bash
   clang-format-18 -i <files>
   ```
+- **Broken intermediate commit** (`BROKEN_SHA` set in Phase 4): the missing piece usually already exists in a *later* commit of the branch — the author split the change wrongly (e.g. a caller committed before its declaration). Inspect the split:
+  ```bash
+  git -C "$WORKTREE_PATH" log --oneline "origin/${MR_TARGET_BRANCH}..HEAD"
+  git -C "$WORKTREE_PATH" show --stat "$BROKEN_SHA"
+  ```
+  Reproduce first, on a detached checkout of the broken commit, so the fix is verified where CI fails:
+  ```bash
+  git -C "$WORKTREE_PATH" checkout --detach "$BROKEN_SHA"
+  cmake --build "$BUILD_PATH" --target <target> -- -j$(nproc)
+  ```
+  Then write the minimal fix and fold it into that commit, keeping the tip content identical:
+  ```bash
+  git -C "$WORKTREE_PATH" checkout "${MR_SOURCE_BRANCH}"
+  git -C "$WORKTREE_PATH" add <files>
+  git -C "$WORKTREE_PATH" commit --fixup "$BROKEN_SHA"
+  GIT_SEQUENCE_EDITOR=true git -C "$WORKTREE_PATH" rebase -i --autosquash "$BROKEN_SHA^"
+  ```
+  Verify the rewrite changed history only, not the result — this must print nothing:
+  ```bash
+  git -C "$WORKTREE_PATH" diff "origin/${MR_SOURCE_BRANCH}" HEAD
+  ```
+  If it prints a diff, the fix altered the tip too; that is acceptable only if the tip was genuinely missing the change, so state it explicitly in the report.
+
+  Finally, rebuild **every** commit in the range to confirm no other commit is broken (CI checks all of them):
+  ```bash
+  for sha in $(git -C "$WORKTREE_PATH" rev-list --reverse "origin/${MR_TARGET_BRANCH}..HEAD"); do
+    git -C "$WORKTREE_PATH" checkout --detach "$sha" &&
+    cmake --build "$BUILD_PATH" --target <target> -- -j$(nproc) || echo "BROKEN: $sha"
+  done
+  git -C "$WORKTREE_PATH" checkout "${MR_SOURCE_BRANCH}"
+  ```
+  Reuse the same `$BUILD_PATH` across commits so incremental builds keep this cheap. If the range is large, bound it to the commits after the first failure rather than the whole branch, and say in the report which commits were skipped.
 
 **Build only the affected target.** Identify the CMake target from the failing file path, then:
 ```bash
@@ -249,6 +291,7 @@ Write the report file at `$WORKTREE_PATH/MR_FIX_REPORT.md`:
 ## Suggested Commit
 
 **Branch:** `<source_branch>` (pushed to the same MR)
+**Mode:** new commit | history rewrite (amended `<BROKEN_SHA>`, force-push required)
 
 **Commit message:**
 ```
@@ -259,6 +302,8 @@ Write the report file at `$WORKTREE_PATH/MR_FIX_REPORT.md`:
 Assisted-by: Claude Code
 ```
 ```
+
+For a history rewrite, replace the commit message block with the rewritten `git log --oneline` range and state that the tip tree is unchanged (or exactly how it changed).
 
 Show the full report inline to the user and **stop**. Wait for explicit approval before touching git.
 
@@ -286,6 +331,13 @@ Proceed only when the user says "commit", "push", "go ahead", or equivalent.
    git -C "$WORKTREE_PATH" push origin "${MR_SOURCE_BRANCH}"
    ```
    Print the MR URL so the user can check the new pipeline.
+
+   **History rewrite only** (steps 1-2 already done via `commit --fixup` + `rebase --autosquash`): the push must be forced. Ask for explicit confirmation first — force-pushing discards any commits a collaborator pushed meanwhile, and `--force-with-lease` is the guard, never plain `--force`:
+   ```bash
+   git -C "$WORKTREE_PATH" fetch origin "${MR_SOURCE_BRANCH}"
+   git -C "$WORKTREE_PATH" push --force-with-lease origin "${MR_SOURCE_BRANCH}"
+   ```
+   If `--force-with-lease` is rejected, the remote moved: stop and hand it back to the user rather than escalating to `--force`.
 4. Clean up worktree and build dir:
    ```bash
    git worktree remove "$WORKTREE_PATH"
@@ -298,4 +350,5 @@ Proceed only when the user says "commit", "push", "go ahead", or equivalent.
 - Build fails repeatedly (more than 2 attempts) → stop, include all error output in the report.
 - Tests fail after fix → include failure output in report; do not push until user decides.
 - Worktree path already exists → reuse if the branch matches; otherwise append `-2` suffix and create fresh.
-- `git push` is rejected (non-fast-forward) → tell the user the MR branch has diverged and ask them to rebase manually before retrying.
+- `git push` is rejected (non-fast-forward) → tell the user the MR branch has diverged and ask them to rebase manually before retrying. Do not silently promote the push to `--force`; that is only ever done for an approved history rewrite, and only as `--force-with-lease`.
+- Rebase during a history rewrite hits a conflict → abort (`git rebase --abort`), report the conflicting commits, and hand back to the user. Do not resolve conflicts across someone else's commits unattended.
