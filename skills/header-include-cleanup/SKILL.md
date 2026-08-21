@@ -19,6 +19,11 @@ explicit) across every header under a target directory, using `include-what-you-
 (IWYU) + `fix_include`, validated by full-project rebuilds. This is slow, iterative, and requires judgment at nearly every step - budget for
 that rather than expecting a fire-and-forget sweep.
 
+When the goal is "make the build cheaper" rather than "tidy up this directory", start
+from the **optimize-compilation-time** skill instead: it picks the target worth sweeping,
+bounds the achievable win before any edits, and owns the measurement harness that decides
+whether a sweep actually paid. Come here once it names a directory.
+
 ## Why this is hard (read before starting)
 
 IWYU only ever sees the usage inside ONE translation unit (TU). A removal that looks
