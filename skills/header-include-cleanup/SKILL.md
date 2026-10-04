@@ -220,12 +220,17 @@ list. Two steps, both writing to the build directory (outside the repo, so nothi
 dirties the working tree):
 
 ```bash
-python3 "$SKILL_DIR/scripts/gen_dependency_tree.py" --repo <repo_root> --compile-commands <build_dir>
-python3 "$SKILL_DIR/scripts/header_line_cost.py"    --repo <repo_root> --compile-commands <build_dir>
+python3 <repo_root>/.gitlab/ci/static/gen_dependency_tree.py --repo <repo_root> \
+        --output <build_dir>/ocudu_dependency_tree.yml
+python3 "$SKILL_DIR/scripts/header_line_cost.py" --repo <repo_root> --compile-commands <build_dir>
 ```
 
-The first emits the project's `#include` graph as `<build_dir>/ocudu_dependency_tree.yml`
-(flat adjacency, direct edges only). The second walks it once per TU in
+The first is OCUDU's own generator, the one CI's dependency-rule check uses; do not keep a
+copy of it here. It emits the project's `#include` graph (flat adjacency, direct edges only,
+each edge with the line it came from). Pass `--output` explicitly: its default is inside the
+repo, which would dirty the working tree. `<repo_root>` must be the checkout
+`compile_commands.json` was built from - a worktree, not the mounted repo it came from - or
+`header_line_cost.py` refuses the tree. The second walks it once per TU in
 `compile_commands.json` and writes `<build_dir>/header_line_cost.json`, headers sorted by
 descending
 
@@ -239,17 +244,26 @@ TUs cost the build the same, and only one of them looks like a problem by eye. P
 `<target_dir>` for the sweep from the top of that list rather than from intuition.
 
 Reading the output:
-- Rerun `gen_dependency_tree.py` after any structural change; `header_line_cost.py` is a
+- Rerun the generator after any structural change; `header_line_cost.py` is a
   pure function of the tree plus `compile_commands.json` and is cheap to repeat.
-- `external: true` rows are system/third-party headers, outside the scanned roots. They
-  are counted but are **leaf nodes** - their own cost is right, everything they include is
-  missing from the graph entirely. A heavy `external` row is still a finding: it names a
+- `external: true` rows are vendored headers under `external/`, which the generator does not
+  scan. They are counted but are **leaf nodes** - their own cost is right, everything they
+  include is missing from the graph entirely. System and standard-library headers are not in
+  the ranking at all: they resolve against none of the repo's include roots, so the tree
+  records them as unresolved. A heavy `external` row is still a finding: it names a
   header worth keeping out of widely-included files (`--repo-only` hides them).
 - `meta.tus_missing_from_tree` above zero means generated sources (unity chunks, protobuf
   output) that the tree skips; every cost below is an underestimate by exactly those TUs.
-- `meta.tree_unresolved_includes` above zero means edges that could not be resolved, so
-  the closures are missing whatever sits beneath them. A large number usually means a
-  stale `compile_commands.json` - reconfigure and regenerate.
+- `meta.tree_unresolved_includes` is never zero: it is mostly system headers (see above),
+  plus anything found only through a conditionally added include directory. The closures
+  are missing whatever sits beneath those. A count far above the ~4000 measured on OCUDU
+  means the generator's fixed include roots no longer match `CMakeLists.txt`.
+- The generator resolves only through the repo's fixed include roots, never through a
+  target's own `-I` directories, so headers reached only that way are undercounted or
+  missing: test helpers (`compare_sequences.h`: 1 TU instead of 13) and headers generated
+  into the build tree (`version_info.h`). For widely included headers the gap is under 1%
+  (`fmt/format.h`: 1479 TUs vs 1487 with `-I` resolution). Rank library headers with it;
+  for a test helper, check with `ninja -t deps`.
 - To spot-check a `tu_count`, compare it against what the compiler itself recorded:
   `ninja -C <build_dir> -t deps` lists the real dependency set per output. Expect the
   script to sit slightly *under* Ninja (measured: within 1-3% on OCUDU), since Ninja also

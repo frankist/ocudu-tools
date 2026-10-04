@@ -14,9 +14,10 @@ reading, summed over the whole build" - which is what makes it a ranking of
 worst offenders rather than a popularity contest: a 12-line header in 4000 TUs
 and a 4000-line header in 12 TUs score the same.
 
-Reads the include graph emitted by gen_dependency_tree.py and the TU list from
-compile_commands.json. Writes <build_dir>/header_line_cost.json, headers sorted
-by descending cost.
+Reads the include graph emitted by OCUDU's own CI generator,
+<repo>/.gitlab/ci/static/gen_dependency_tree.py (edges are {target, line,
+quoted}, repo-relative), and the TU list from compile_commands.json. Writes
+<build_dir>/header_line_cost.json, headers sorted by descending cost.
 
 What the number is and is not:
   - It is a static estimate, in physical lines, of a header's total weight
@@ -26,17 +27,22 @@ What the number is and is not:
     and the estimate cannot see the preprocessor. For the ground truth on a
     specific edit, use run_batch.sh's closure measurement, which preprocesses
     the real TU - see SKILL.md, "Measuring the win".
-  - Headers outside the scanned source roots (system and third-party headers)
-    are LEAF nodes: they are counted themselves, but nothing they include is
+  - Headers the generator does not scan (vendored code under external/) are
+    LEAF nodes: they are counted themselves, but nothing they include is
     reachable, so their own cost is right while everything beneath them is
     missing entirely. They are marked "external": true.
+  - System and standard-library headers resolve against none of the repo's
+    include roots, so the tree records them as unresolved and they are absent
+    from the ranking altogether.
 
 Usage:
   python3 header_line_cost.py [options]
 
 Options:
   --repo <path>              Project root. Default: git toplevel of the cwd.
-  --tree <path>              Dependency tree YAML from gen_dependency_tree.py.
+  --tree <path>              Dependency tree YAML from
+                             <repo>/.gitlab/ci/static/gen_dependency_tree.py.
+                             Its meta.repo_root must be --repo.
                              Default: <build-dir>/ocudu_dependency_tree.yml.
   --compile-commands <path>  compile_commands.json, or the build directory
                              holding it. Default: <repo>/build/compile_commands.json.
@@ -47,7 +53,8 @@ Options:
 
 Exit codes:
   0  ranking written
-  2  bad input (missing tree, missing compile_commands.json, no TUs resolved)
+  2  bad input (missing tree, tree of another checkout or in an old format,
+     missing compile_commands.json, most TUs absent from the tree)
 """
 
 from __future__ import annotations
@@ -105,17 +112,35 @@ def is_header(rel_path: str) -> bool:
     return Path(rel_path).suffix.lower() in HEADER_SUFFIXES
 
 
-def load_tree(tree_path: Path) -> tuple[dict[str, list[str]], dict]:
+GENERATOR = ".gitlab/ci/static/gen_dependency_tree.py"
+
+
+def load_tree(tree_path: Path, repo: Path) -> tuple[dict[str, list[str]], dict]:
     try:
         doc = yaml.load(tree_path.read_text(encoding="utf-8"), Loader=LOADER)
     except OSError as exc:
-        fail(f"{tree_path}: {exc}\nGenerate it first with gen_dependency_tree.py.")
+        fail(f"{tree_path}: {exc}\nGenerate it first with {repo / GENERATOR}.")
     except yaml.YAMLError as exc:
         fail(f"{tree_path}: {exc}")
     if not isinstance(doc, dict) or "files" not in doc:
         fail(f"{tree_path}: not a dependency tree (no 'files' key)")
-    edges = {path: (entry or {}).get("includes", []) for path, entry in doc["files"].items()}
-    return edges, doc.get("meta", {})
+    meta = doc.get("meta", {})
+    # A tree of another checkout (the mounted repo vs a worktree of it) has the
+    # same repo-relative paths, so it would load fine and silently describe the
+    # wrong source.
+    tree_root = meta.get("repo_root")
+    if tree_root and Path(tree_root).resolve() != repo:
+        fail(f"{tree_path}: generated for {tree_root}, not --repo {repo}; regenerate it there")
+    edges: dict[str, list[str]] = {}
+    for path, entry in doc["files"].items():
+        targets = []
+        for edge in (entry or {}).get("includes", []):
+            if not isinstance(edge, dict) or "target" not in edge:
+                fail(f"{tree_path}: edges are not {{target, line, quoted}}; "
+                     f"regenerate it with {repo / GENERATOR}")
+            targets.append(edge["target"])
+        edges[path] = targets
+    return edges, meta
 
 
 def tu_paths(cc_path: Path, repo: Path) -> list[str]:
@@ -197,7 +222,7 @@ def main() -> int:
     tree_path = Path(args.tree) if args.tree else build_dir / "ocudu_dependency_tree.yml"
     output = Path(args.output) if args.output else build_dir / "header_line_cost.json"
 
-    edges, tree_meta = load_tree(tree_path.resolve())
+    edges, tree_meta = load_tree(tree_path.resolve(), repo)
     tus = tu_paths(cc_path, repo)
     if not tus:
         fail(f"{cc_path}: no translation units")
@@ -208,6 +233,12 @@ def main() -> int:
     # also where CMake puts unity chunks and protobuf output.
     known = [tu for tu in tus if tu in edges]
     missing = len(tus) - len(known)
+    # A handful missing is generated code; most missing means the tree and
+    # compile_commands.json describe different checkouts, and an empty ranking
+    # would read as "nothing is expensive".
+    if len(known) < len(tus) / 2:
+        fail(f"{missing} of {len(tus)} TUs in {cc_path} are absent from {tree_path}: "
+             f"is compile_commands.json from a build of --repo {repo}?")
 
     tu_counts: dict[str, int] = {}
     for tu in known:
@@ -219,7 +250,8 @@ def main() -> int:
     unreadable = 0
     for path, count in tu_counts.items():
         absolute = Path(path) if Path(path).is_absolute() else repo / path
-        external = not str(absolute).startswith(str(repo) + "/")
+        # Not scanned by the generator (vendored code under external/), so a leaf.
+        external = path not in edges
         if external and args.repo_only:
             continue
         lines = count_lines(absolute)
