@@ -74,8 +74,7 @@ class/struct buys little while adding real fragility:
   an underlying type must repeat it *exactly* - if the real declaration's underlying type
   ever changes, the forward-declare silently goes stale and breaks in a confusing way far
   from its cause.
-- A template forward-declare must repeat every template parameter (after default-stripping,
-  see "Why defaults must be stripped" above) *exactly* - a signature change upstream (a
+- A template forward-declare must repeat every template parameter *exactly* - a signature change upstream (a
   parameter added, reordered, or its default changed) silently breaks it the same way, and
   the mismatch usually surfaces as a confusing error far from the header that needs fixing.
 
@@ -98,14 +97,9 @@ from IWYU's point of view. Real incident: `search_space.h` needed `nr_band`, and
 resolved to `band_helper.h` - a large header that uses `nr_band` throughout its own body -
 instead of the few-line `nr_band.h` that actually defines it, simply because
 `band_helper.h` happened to be IWYU's answer. Before trusting IWYU's full-list candidate,
-the tooling now verifies the candidate header's own on-disk content actually *defines* the
-symbol (the same enum/class/alias/typedef check the project-wide search uses); if it
-doesn't, resolution falls through to the next step instead. This is also why
-`find_defining_removed_include`'s own "does this removed header declare it" check
-recognizes `enum class X` and not just bare `enum X` - the earlier, narrower pattern
-silently downgraded every enum-class definition to the same weak "bare word appears
-somewhere" match a heavy, merely-*using* header gets, letting a tie go to whichever
-candidate was found first rather than the one that actually defines the symbol.
+the tooling verifies the candidate header's on-disk content defines the symbol (enum/enum
+class/class/alias/typedef); otherwise resolution falls through to the next step.
+`find_defining_removed_include` applies the same definition check.
 
 IWYU also occasionally suggests a C standard-library header (`<stdint.h>`, `<math.h>`)
 in a C++ TU where this codebase's own convention is the C++ wrapper form (`<cstdint>`,
@@ -129,7 +123,7 @@ table before being written, at every level and every resolution path.
     tooling can't get right on its own (elided-default usages, type aliases, extern
     template instantiations). **Never forward-declares an enum or a template class/struct**,
     at this level or above - see "Why enums and template classes never get forward-declared"
-    below; any such forward-declare IWYU suggests is resolved back to the real header
+    above; any such forward-declare IWYU suggests is resolved back to the real header
     instead, in every file, .h or .cpp alike. A plain, non-template class/struct
     forward-declare is unaffected.
   - **`targeted`** - `forward-declare`, plus the minimum set of `#include` lines needed
@@ -203,8 +197,7 @@ Confirm a compile database exists at `<build_dir>/compile_commands.json` (genera
 `-DCMAKE_EXPORT_COMPILE_COMMANDS=On`). If not, stop and ask the user to configure/build
 first.
 
-Find `SKILL_DIR` (the directory containing this SKILL.md) for absolute script paths, and
-set `WORK_DIR` to the session scratchpad directory (all intermediate lists, batches, dumps
+Set `WORK_DIR` to the session scratchpad directory (all intermediate lists, batches, dumps
 and results below live there, never in the repo).
 
 ## Phase 0b - Rank the headers by cost
@@ -214,7 +207,7 @@ project, next to the rest of the compile-time method. Run OCUDU's own generator,
 project's ranking script:
 
 ```bash
-python3 <repo_root>/.gitlab/ci/static/gen_dependency_tree.py --repo <repo_root> \
+python3 <repo_root>/.gitlab/ci/static/check_dependencies/gen_dependency_tree.py --repo <repo_root> \
         --output <build_dir>/ocudu_dependency_tree.yml
 python3 ~/projects/compilation-trace/header_line_cost.py --repo <repo_root> --compile-commands <build_dir>
 ```
@@ -228,7 +221,7 @@ edit saved.
 ## Phase 1 - Discover the work list
 
 ```bash
-bash "$SKILL_DIR/scripts/discover_headers.sh" <target_dir> > "$WORK_DIR/headers.txt"
+bash "$CLAUDE_SKILL_DIR/scripts/discover_headers.sh" <target_dir> > "$WORK_DIR/headers.txt"
 wc -l "$WORK_DIR/headers.txt"
 ```
 
@@ -241,7 +234,7 @@ split -l 30 -d "$WORK_DIR/headers.txt" "$WORK_DIR/batch_"
 Also generate the Ninja deps dump **once**, up front, for headers with no `.cpp` of their
 own (see Phase 2):
 ```bash
-python3 "$SKILL_DIR/scripts/dump_ninja_deps.py" <build_dir> "$WORK_DIR/ninja_deps_dump.txt"
+python3 "$CLAUDE_SKILL_DIR/scripts/dump_ninja_deps.py" <build_dir> "$WORK_DIR/ninja_deps_dump.txt"
 ```
 Do this once per run, not per header - see Phase 2's warning. It exits non-zero if Ninja
 couldn't produce a dump; don't proceed with a missing or empty one, every header would
@@ -253,7 +246,7 @@ For each batch file, run it through `run_batch.sh` **in the foreground**, as a r
 invocation of the script file, passing the deps dump generated in Phase 1:
 
 ```bash
-bash "$SKILL_DIR/scripts/run_batch.sh" <repo_root> <build_dir> "$WORK_DIR/batch_00" \
+bash "$CLAUDE_SKILL_DIR/scripts/run_batch.sh" <repo_root> <build_dir> "$WORK_DIR/batch_00" \
   "$WORK_DIR/results_batch_00.jsonl" <level> "$WORK_DIR/ninja_deps_dump.txt" [measure_closure]
 ```
 
@@ -359,8 +352,7 @@ before starting the next batch.** Do not process every batch first and rebuild o
 the end: `ninja`'s own incrementality means the total compile work is the same either
 way, but debugging a rebuild scoped to one ~30-header batch (1-2 root causes) is far
 faster than untangling one scoped to nine batches at once (5+ simultaneous, unrelated
-root causes competing for attention in a single sprawling error log - this is exactly
-what made the ran/ cleanup pass slower than it needed to be). Only after Phase 3 comes
+root causes competing for attention in a single sprawling error log). Only after Phase 3 comes
 back clean for this batch should the next one start.
 
 ## Measuring the win
@@ -451,7 +443,7 @@ decision tree:
    re-exporting a symbol** (the most common case)? Then check the fanout before deciding
    how to respond:
    ```bash
-   bash "$SKILL_DIR/scripts/check_fanout.sh" <repo_root> '<usage-grep-pattern>' '<direct-include-grep-pattern>'
+   bash "$CLAUDE_SKILL_DIR/scripts/check_fanout.sh" <repo_root> '<usage-grep-pattern>' '<direct-include-grep-pattern>'
    ```
    - **Narrow fanout (roughly 1-3 files)**: fix it properly - add the missing direct
      `#include` to each real consumer. This *completes* the IWYU cleanup as it should be

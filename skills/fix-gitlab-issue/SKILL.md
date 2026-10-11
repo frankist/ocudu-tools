@@ -70,9 +70,9 @@ Do not begin any code search until the user confirms the entry point.
 
 ## Phase 3 — Code Investigation (read-only — no edits until Phase 6)
 
-**Analyze logs.** If `analyze-ocudu-log` is available, check the issue and all its comments for log data:
-- Inline OCUDU log output → invoke `analyze-ocudu-log` on it.
-- CI job URL (e.g. `https://gitlab.com/<project>/-/jobs/<id>`) → invoke `analyze-ocudu-log` on it directly.
+**Analyze logs.** If `analyze-ran-log` is available, check the issue and all its comments for log data:
+- Inline OCUDU log output → invoke `analyze-ran-log` on it.
+- CI job URL (e.g. `https://gitlab.com/<project>/-/jobs/<id>`) → invoke `analyze-ran-log` on it directly.
 
 Tell the skill the reported symptom, affected component, and relevant error strings from the issue.
 
@@ -318,6 +318,6 @@ EOF
 - `glab` command fails → print the raw output and stop with a clear error.
 - Build fails repeatedly → document errors, stop, include them in the report.
 - Tests fail after fix → include failure output in the report; do not create MR until user decides.
-- Worktree path already exists → handled inline in Phase 6 (reuse or pick a different suffix).
+- Worktree path already exists → reuse it (Phase 6).
 - Push rejected (non-fast-forward) → do not force-push; inform the user and stop.
 - MR creation fails → print the raw `create_mr.sh` output and stop; the worktree is preserved for retry.

@@ -16,13 +16,13 @@ Investigate and fix failing CI jobs on a GitLab MR, then propose a commit to the
 
 ## Self-improvement
 
-This skill may edit its own `SKILL.md` and supporting scripts at any time to improve itself. Worthwhile improvements include: sharper failure classification, better grep patterns for extracting errors from logs, more targeted build/test commands, new failure categories encountered in practice, faster or cheaper API access patterns, and anything that reduces unnecessary token usage or work. After editing, note what changed and why in a brief inline comment above the changed section. No user approval is needed for self-edits — they are part of normal skill execution.
+This skill may edit its own `SKILL.md` and scripts when a run exposes a reusable improvement. Write the current rule, not a change note; list the self-edits in the final report.
 
 ## Phase 0 — Prerequisites
 
 **Check token.** Run:
 ```bash
-echo "${GITLAB_AI_TOKEN:-MISSING}"
+[ -n "${GITLAB_AI_TOKEN:-}" ] && echo set || echo MISSING
 ```
 If the output is `MISSING`, stop and tell the user:
 > `GITLAB_AI_TOKEN` is not set. Add it to `~/.zshrc` or `~/.bashrc`:
@@ -37,13 +37,11 @@ If the output is `MISSING`, stop and tell the user:
 - `PROJECT_PATH` — e.g. `ocudu/ocudu`
 - `MR_IID` — numeric MR ID (e.g. `618`)
 
-Find the `SKILL_DIR` (directory containing this SKILL.md) so scripts can be invoked with absolute paths.
-
 ## Phase 1 — Fetch MR and Pipelines
 
 Run:
 ```bash
-bash "$SKILL_DIR/scripts/fetch_mr.sh" "$GITLAB_BASE" "$PROJECT_PATH" "$MR_IID"
+bash "$CLAUDE_SKILL_DIR/scripts/fetch_mr.sh" "$GITLAB_BASE" "$PROJECT_PATH" "$MR_IID"
 ```
 
 From the returned JSON extract:
@@ -77,7 +75,7 @@ When re-analyzing an earlier pipeline, make clear which pipeline (ID + short SHA
 
 Run:
 ```bash
-bash "$SKILL_DIR/scripts/fetch_pipeline_jobs.sh" "$GITLAB_BASE" "$PROJECT_PATH" "$PIPELINE_ID"
+bash "$CLAUDE_SKILL_DIR/scripts/fetch_pipeline_jobs.sh" "$GITLAB_BASE" "$PROJECT_PATH" "$PIPELINE_ID"
 ```
 
 From the job list, extract all jobs where `status == "failed"`.
@@ -98,7 +96,7 @@ Wait for the user's selection, then proceed with that `job_id` and `job_name`.
 **Download the log:**
 ```bash
 LOG_FILE="/tmp/mr-${MR_IID}-job-${JOB_ID}.log"
-bash "$SKILL_DIR/scripts/fetch_job_log.sh" "$GITLAB_BASE" "$PROJECT_PATH" "$JOB_ID" "$LOG_FILE"
+bash "$CLAUDE_SKILL_DIR/scripts/fetch_job_log.sh" "$GITLAB_BASE" "$PROJECT_PATH" "$JOB_ID" "$LOG_FILE"
 ```
 
 **Find the failure.** Logs can be large — never read the whole file. Work from the end:
@@ -135,9 +133,9 @@ For infra/network failures, write a brief assessment and **stop** — these are 
 
 Identify the offending commit from the log — the job checks out each commit in turn and echoes it:
 ```bash
-grep -nE "^\s*(Building|Checking|Compiling)? ?commit|git checkout [0-9a-f]{7,}|HEAD is now at" "$LOG_FILE" | tail -20
+grep -nE '^#### [0-9a-f]{40} ####' "$LOG_FILE"
 ```
-Then take the last such SHA before the first `error:` line. Record it as `BROKEN_SHA` and continue to Phase 5.
+Then take the last one before the first `error:` line. Record it as `BROKEN_SHA` and continue to Phase 5.
 
 For all other categories, continue to Phase 5.
 
@@ -231,7 +229,7 @@ cmake --build "$BUILD_PATH" --target <specific_target> -- -j$(nproc)
 ```
 Fix compiler errors iteratively. Do not proceed to testing until the build is clean.
 
-**Run all test targets that failed in the CI job.** From the log analysis in Phase 4, collect every distinct test binary that appeared in the FAILED list (e.g. `common_scheduler_test`, `scheduler_test`, `du_high_tester`). Build and run each one:
+**Run all test targets that failed in the CI job.** From the log analysis in Phase 4, collect every distinct test binary that appeared in the FAILED list (e.g. `common_scheduler_test`, `scheduler_test`, `du_high_sr_config_test`). Build and run each one:
 ```bash
 cmake --build "$BUILD_PATH" --target <test_target_1> <test_target_2> ... -- -j$(nproc)
 ctest --test-dir "$BUILD_PATH" -R "^(test_target_1|test_target_2|...)$" --output-on-failure -j$(nproc)

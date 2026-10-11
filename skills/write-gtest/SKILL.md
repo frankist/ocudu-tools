@@ -26,6 +26,7 @@ TEST_F(scheduler_test, when_queue_is_full_then_packet_is_dropped) { ... }
 4. Minimize the use of magic numbers. Use static constexpr variables with the names that are clear enough to express what these numbers represent.
 5. Before writing a new fixture, check whether an existing base tester class covers the setup and can be reused. Search the surrounding test files for classes like `base_scheduler_tdd_tester`; new fixtures often derive from them, e.g.
 ```cpp
-class scheduler_dl_tdd_tester : public base_scheduler_tdd_tester, public ::testing::TestWithParam<tdd_test_params> { ... };
+class scheduler_dl_tdd_tester : public base_scheduler_single_ue_tdd_tester,
+                                public ::testing::TestWithParam<singleue_tdd_test_params> { ... };
 ```
 Prefer extending or composing the base tester over duplicating its setup.
