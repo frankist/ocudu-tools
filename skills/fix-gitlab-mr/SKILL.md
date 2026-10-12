@@ -141,34 +141,27 @@ For all other categories, continue to Phase 5.
 
 ## Phase 5 — Create Worktree on MR Branch
 
-**Check if worktree already exists:**
+**Create the worktree on the MR's source branch** with the `manage-worktree` skill's script, which puts it in
+`<repo>-worktrees/<repo>-<branch>` (reusing it if it exists) and configures a build directory inside it that shares
+ccache with the other worktrees:
 ```bash
-git worktree list
-```
-If a worktree for this MR already exists at the expected path, reuse it (skip the `git worktree add` step).
-
-**Create the worktree on the MR's source branch:**
-```bash
-WORKTREE_PATH="/tmp/fix-mr-${MR_IID}"
 git fetch origin "${MR_SOURCE_BRANCH}"
-git worktree add "$WORKTREE_PATH" "origin/${MR_SOURCE_BRANCH}"
-# Set the branch to track the remote so we can push later
-git -C "$WORKTREE_PATH" checkout -B "${MR_SOURCE_BRANCH}" "origin/${MR_SOURCE_BRANCH}"
+"${CLAUDE_SKILL_DIR}/../manage-worktree/scripts/create_worktree.sh" "$(git rev-parse --show-toplevel)" \
+  "${MR_SOURCE_BRANCH}" RelWithDebInfo
 ```
+Take `WORKTREE_PATH` (`Location`) and `BUILD_PATH` (the `cmake --build` directory) from its summary.
 
-All subsequent file reads and edits must target paths under `$WORKTREE_PATH`.
+If `git worktree add` fails because the branch is already checked out elsewhere (e.g. the main repo), stop and ask the
+user whether to work in that checkout instead.
 
-**Configure the build.** Never use the user's existing `build/` or `build_plugins/` directories.
+A local branch of the same name is reused as is. Bring it to the MR head without discarding local commits:
 ```bash
-BUILD_PATH="/tmp/fix-mr-${MR_IID}-build"
-cmake -S "$WORKTREE_PATH" -B "$BUILD_PATH" \
-  -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-  -G Ninja \
-  -DLINKER=mold \
-  -DBUILD_TESTING=On \
-  -DCMAKE_CXX_COMPILER_LAUNCHER=
+git -C "$WORKTREE_PATH" merge --ff-only "origin/${MR_SOURCE_BRANCH}"
 ```
-Pass `-DCMAKE_CXX_COMPILER_LAUNCHER=` (empty) to explicitly disable ccache even if the project enables it by default — the temporary build directory gets no cache hits and would only contaminate the user's ccache with throwaway objects.
+If that fails, the local branch has diverged from the MR: stop and ask the user.
+
+All subsequent file reads and edits must target paths under `$WORKTREE_PATH`. Never build in the user's existing
+`build/` directories.
 
 ## Phase 6 — Implement Fix
 
@@ -336,10 +329,9 @@ Proceed only when the user says "commit", "push", "go ahead", or equivalent.
    git -C "$WORKTREE_PATH" push --force-with-lease origin "${MR_SOURCE_BRANCH}"
    ```
    If `--force-with-lease` is rejected, the remote moved: stop and hand it back to the user rather than escalating to `--force`.
-4. Clean up worktree and build dir:
+4. Ask the user whether to remove the worktree, and if so:
    ```bash
-   git worktree remove "$WORKTREE_PATH"
-   rm -rf "$BUILD_PATH"
+   "${CLAUDE_SKILL_DIR}/../manage-worktree/scripts/remove_worktree.sh" "$WORKTREE_PATH"
    ```
 
 ## Error handling
@@ -347,6 +339,6 @@ Proceed only when the user says "commit", "push", "go ahead", or equivalent.
 - `curl` returns empty or HTTP 4xx → print the raw response and stop with a clear error.
 - Build fails repeatedly (more than 2 attempts) → stop, include all error output in the report.
 - Tests fail after fix → include failure output in report; do not push until user decides.
-- Worktree path already exists → reuse if the branch matches; otherwise append `-2` suffix and create fresh.
+- Worktree path already exists → `create_worktree.sh` reuses it if the branch matches; otherwise it creates one with a `-2` suffix.
 - `git push` is rejected (non-fast-forward) → tell the user the MR branch has diverged and ask them to rebase manually before retrying. Do not silently promote the push to `--force`; that is only ever done for an approved history rewrite, and only as `--force-with-lease`.
 - Rebase during a history rewrite hits a conflict → abort (`git rebase --abort`), report the conflicting commits, and hand back to the user. Do not resolve conflicts across someone else's commits unattended.
