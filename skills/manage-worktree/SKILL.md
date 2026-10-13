@@ -48,7 +48,8 @@ Run the script directly:
 ```
 
 The script handles all remaining work: worktree creation (with local/remote/new-branch detection),
-cmake configuration, `worktree.cmake` toolchain file, `.envrc` generation, and `direnv allow`. It
+cmake configuration, `worktree.cmake` toolchain file, `.envrc` generation, `direnv allow`, and
+copying every `CLAUDE.local.md` of the main repo into the same relative path of the worktree. It
 exits immediately with an error if direnv is not installed. It prints the final summary itself —
 relay it to the user.
 

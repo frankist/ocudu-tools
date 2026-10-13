@@ -68,7 +68,19 @@ export CCACHE_BASEDIR="$(pwd)"
 EOF
 direnv allow "$WORKTREE_PATH"
 
-# --- Phase 5: summary ---
+# --- Phase 5: copy personal agent instructions ---
+# Untracked, so git worktree add does not bring them. Symlinks stay symlinks. Existing copies are kept.
+LOCAL_MD_COUNT=0
+while IFS= read -r -d '' src; do
+    dst="$WORKTREE_PATH/${src#"$REPO_ROOT"/}"
+    if [ ! -e "$dst" ]; then
+        mkdir -p "$(dirname "$dst")"
+        cp -P "$src" "$dst"
+        LOCAL_MD_COUNT=$((LOCAL_MD_COUNT + 1))
+    fi
+done < <(find "$REPO_ROOT" \( -name .git -o -name 'build*' \) -prune -o -name CLAUDE.local.md \( -type f -o -type l \) -print0)
+
+# --- Phase 6: summary ---
 cat <<EOF
 
 Worktree ready.
@@ -83,4 +95,5 @@ To build:
 
 ccache sharing : CCACHE_BASEDIR set automatically via direnv on cd
 Debug paths    : -fdebug-prefix-map remaps DWARF paths to relative
+CLAUDE.local.md: $LOCAL_MD_COUNT file(s) copied from $REPO_ROOT
 EOF
